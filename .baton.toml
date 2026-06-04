@@ -1,0 +1,9 @@
+# .baton.toml — Baton project configuration
+# https://github.com/AriS10223/baton
+
+[baton]
+min_diff_lines = 10
+auto_sync = true
+
+[adapters]
+enabled = ["claude", "codex", "cursor", "gemini", "copilot"]
