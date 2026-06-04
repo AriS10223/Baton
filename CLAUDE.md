@@ -1,109 +1,82 @@
-# CLAUDE.md — Baton Project: Codebase Instructions & Lessons
+# CLAUDE.md
 
-> This file serves two purposes:
-> 1. Instructions for AI agents working on the Baton codebase.
-> 2. A running log of mistakes and lessons so they are not repeated.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
----
+## What this project is
 
-## Project Summary
+**Baton** is a Python CLI (`pip install baton-cli`) that solves context-loss for vibe coders switching between AI coding tools. It keeps a single `BATON.md` as the source of truth and syncs it into every agent's native config file (`CLAUDE.md`, `AGENTS.md`, `.cursor/rules/baton.mdc`, `GEMINI.md`, `.github/copilot-instructions.md`) so context survives tool switches.
 
-**Baton** is a Python CLI tool that maintains a single living onboarding document (`BATON.md`) as the source of truth for a codebase, and syncs it into every AI agent's native config file (`CLAUDE.md`, `AGENTS.md`, `.cursor/rules/baton.mdc`, etc.). This lets vibe coders switch between Claude Code, Cursor, and Codex without losing momentum.
+## Development setup
 
-- **Repo:** https://github.com/AriS10223/baton
-- **Entry point:** `baton/cli.py` → `main()`
-- **Language:** Python 3.10+
-- **CLI framework:** Typer (not Click)
-- **Terminal output:** Rich
-- **YAML parsing:** ruamel.yaml (round-trip, preserves inline `#` comments)
-- **Config format:** `.baton.toml` (TOML, read with stdlib `tomllib` or `tomli` backport)
+```bash
+pip install -e ".[dev]"   # installs typer, rich, ruamel.yaml, tomli, pytest
+```
 
----
+Python 3.10+ required. `tomllib` is stdlib on 3.11+; `tomli` is the conditional backport used on 3.10 (see `core/config.py`).
 
-## Approved Phase 1 — Increment 1 Plan
+## Running tests
 
-**Scope:** Four no-LLM commands: `init`, `sync`, `status`, `score`.
-**Increment 2** (deferred): `baton end` — git-diff parser + Anthropic summarizer + Rich review UI.
+```bash
+pytest tests/                         # full suite (107 tests)
+pytest tests/test_adapters.py -v      # single file
+pytest tests/ -k "test_upsert"        # by name pattern
+```
 
-### Key design decisions (locked)
-- **Managed block markers** — never clobber existing user content. Sync only modifies the region
-  between the BATON:START and BATON:END HTML comment markers. (Note: never write the literal
-  markers inside code fences in files Baton manages — they will be treated as real markers.)
-- **`schema.py` is the single source of truth** for sections, fields, and score checks.
-- **`document.py` round-trip fidelity** — extracts the triple-backtick yaml fenced block,
-  parses with ruamel.yaml, writes it back in place.
-- **`status` = re-render + compare** — no LLM, no git diff.
-- **Score totals exactly 100 points** across 11 checks in `SCORE_CHECKS`.
-- **Token-limit trigger is manual + pre-commit hook reminder.** Baton cannot auto-detect
-  another tool's token state.
+Tests use `tmp_path` (pytest) for filesystem isolation — no mocking. The shared fixture is `tests/fixtures/sample_baton.md`.
 
----
+## Running the CLI during development
 
-## Mistakes & Lessons
+```bash
+python -m baton.cli score
+python -m baton.cli sync
+python -m baton.cli status
+python -m baton.cli init --force
+```
 
-> Append to this section whenever something breaks or a wrong assumption is made.
-> Format: **[date] — Mistake -> Lesson**
+On Windows with the default CP1252 console, all `console.print()` output must use basic ASCII only. Files written to disk are always UTF-8.
 
-**[2026-06-04] — Folder was not a git repo**
-- Mistake: Started building without `git init`. The pre-commit hook installation, Pass-1 parser (Increment 2), and dogfooding all require `.git` to exist.
-- Lesson: `baton init` must check for `.git` before installing the pre-commit hook. Print a clear message if `.git` is absent: "Run `git init` first, then re-run `baton init` to install the hook." Never silently skip the hook installation.
+## Architecture
 
-**[2026-06-04] — Token-trigger is NOT auto-detection**
-- Mistake: The marketing copy implies Baton auto-senses token limits. No external tool exposes its token state to a CLI.
-- Lesson: Phase 1 trigger = manual `baton end` + a non-blocking pre-commit hook reminder. Never add code or docs claiming auto-detection in Phase 1.
+**Data flow for `baton sync`:**
 
-**[2026-06-04] — BATON.md format is fenced YAML in markdown, not pure YAML**
-- Mistake: Treating BATON.md as a pure YAML file.
-- Lesson: `document.py` must find and parse the triple-backtick yaml fenced block inside the markdown. The rest of the markdown must be preserved on save.
+```
+cli.py (Typer entry point)
+  -> commands/sync.py
+    -> core/document.py      BatonDocument.load() extracts + parses the ```yaml fenced block
+    -> core/config.py        reads .baton.toml; falls back to auto-detect if absent
+    -> adapters/registry.py  detect_enabled() scans repo root for indicator files/dirs
+    -> for each adapter:
+         adapter.render(data)          returns inner block markdown (no markers)
+         adapter.prepare_file(...)     upserts managed block into existing file content
+         target.write_text(utf-8)
+```
 
-**[2026-06-04] — Never overwrite existing agent files**
-- Mistake: Writing the entire `CLAUDE.md` file on `sync`.
-- Lesson: Always use BATON:START / BATON:END managed-block markers. `upsert_managed_block()` replaces only the block, leaving hand-written prose intact. This is the #1 safety property of `sync`.
+**`core/schema.py` is the single source of truth.** `SCORE_CHECKS` (11 checks, total 100 pts) lives here and is imported by `score.py`. A module-level `assert` enforces the total at import time — adding a check without rebalancing points fails immediately.
 
-**[2026-06-04] — `score.py` must reuse `schema.py`**
-- Mistake: Hardcoding field names inside `score.py`.
-- Lesson: `SCORE_CHECKS` is defined in `schema.py` and imported by `score.py`. The assertion `sum(c.points for c in SCORE_CHECKS) == 100` enforces the total. Never duplicate field lists.
+**Managed-block pattern** (`adapters/base.py`): `sync` never replaces a whole file. It only rewrites the region between `BATON:START` and `BATON:END` HTML comment markers via `upsert_managed_block()`. `status.py` uses `extract_managed_block()` + a fresh `adapter.render()` to detect drift without any LLM or git calls.
 
-**[2026-06-04] — Python 3.11 law vs. machine reality**
-- Mistake: Plan said "Python 3.11+ only" but the development machine has only Python 3.10.
-- Root cause: `tomllib` was added to stdlib in 3.11; `tomli` is the 3.10-compatible backport.
-- Fix: `requires-python = ">=3.10"` in pyproject.toml; `tomli>=2.0; python_version < '3.11'` as a conditional dep; `config.py` uses `try: import tomllib except ImportError: import tomli as tomllib`.
-- Lesson: Check the target machine's Python before writing hard version constraints into laws.
+**Cursor adapter** (`adapters/cursor.py`) overrides `prepare_file()` because `.mdc` files require YAML frontmatter at the top of the file, outside the managed block.
 
-**[2026-06-04] — Unicode emoji breaks Windows CP1252 terminal (Rich tables)**
-- Mistake: Used Unicode icons (checkmarks, emoji) as status indicators in Rich tables. These aren't in Windows CP1252 → `UnicodeEncodeError`.
-- Fix: Replace with ASCII alternatives (`OK`, `!!`, `--`). The YAML files written by sync are UTF-8 (fine). Only Rich `console.print()` strings need to be CP1252-safe.
-- Lesson: On Windows with the default console, treat all Rich output strings as ASCII-only. Or force UTF-8 via `PYTHONUTF8=1` env var.
+## Non-obvious invariants
 
-**[2026-06-04] — detect_enabled returns only found adapters, not all five by default**
-- Mistake: Expected `baton sync` in a project with just CLAUDE.md to sync all five adapters.
-- Lesson: `detect_enabled` returns only found adapters (correct behavior). Users must either run `baton init` first (creates `.baton.toml` with all five) or manually create `.baton.toml` with `enabled = [...]`.
+**`re.sub` replacements must use a lambda.** `re.sub(pattern, block, text)` interprets `\n` in a plain string replacement as an actual newline. When the replacement contains YAML-derived data (which may include literal `\n`), this silently corrupts the output. Always write: `re.sub(pattern, lambda _m: block, text)`. This applies to both `upsert_managed_block()` in `adapters/base.py` and `save()` in `core/document.py`.
 
-**[2026-06-04] — Regex for YAML fence must anchor closing ``` to start of line**
-- Mistake: Used `r"```yaml\n(.*?)```"`. Terminates prematurely on triple-backticks inside YAML string values.
-- Fix: `r"```yaml\n(.*?)\n```"` — the `\n` before closing ``` ensures it only matches at line start.
+**YAML fence regex** (`_YAML_FENCE_RE` in `document.py`): the pattern is `r"```yaml\n(.*?)\n```"`. The `\n` before the closing backticks is load-bearing — without it, triple-backticks inside a YAML string value terminate the match early.
 
-**[2026-06-04] — Never write the literal BATON:START/END markers inside code fences in managed files**
-- Mistake: The original CLAUDE.md had a code block showing the managed-block marker format literally. When `baton sync` ran, it found the example marker inside the code fence and treated it as the real marker, corrupting the file.
-- Root cause: `upsert_managed_block` uses a regex that scans the ENTIRE file, including code fences. It cannot distinguish "example of a marker" from "actual marker".
-- Fix (for now): Never write the literal BATON:START text in any file Baton manages. Use different notation in documentation (e.g. `BATON-START` with a hyphen, or a prose description).
-- Future fix: `extract_managed_block` should skip content inside triple-backtick fences.
+**`detect_enabled` returns only found adapters.** If only `CLAUDE.md` exists in the target project, only the Claude adapter runs. A `.baton.toml` with `[adapters] enabled = [...]` overrides this. Users must run `baton init` (which writes `.baton.toml` with all five) to get all adapters on a fresh project.
 
-**[2026-06-04] — Git identity**
-- Always commit as `AriS10223 <220664302+AriS10223@users.noreply.github.com>`. Never add Co-Authored-By: Claude or any Anthropic attribution to commit messages.
+**Never write the literal marker text** (`BATON:START` / `BATON:END`) inside code fences in any file Baton manages. The regex scans the full file and cannot distinguish examples from real markers.
 
----
+## Adding a new adapter
 
-## Laws (hard constraints for this codebase)
+Create `baton/adapters/mytool.py`, subclass `BaseAdapter`, implement `render()` and `file_path()`. Register in `ADAPTER_MAP` and `_DETECTION_RULES` in `registry.py`. See `CONTRIBUTING.md` for the full ~50-line pattern.
 
-1. **Python 3.10+ (3.11+ preferred).** Use tomllib/tomli conditional import.
-2. **Typer for CLI, not Click directly.** Typer wraps Click; use Typer's patterns.
-3. **ruamel.yaml for all BATON.md parsing.** Never use PyYAML — it drops inline comments.
-4. **`schema.py` owns field definitions.** Never define the schema's section/field names elsewhere.
-5. **Managed-block markers are sacred.** `sync` never writes a full file without the managed-block markers.
-6. **No LLM calls in Increment 1.** `init`, `sync`, `status`, `score` are purely deterministic.
-7. **Score must total exactly 100 points.** The assertion in `schema.py` enforces this.
-8. **Rich output strings must be CP1252-safe.** No Unicode beyond basic Latin in console.print() calls.
+## Hard constraints
+
+- **Never use PyYAML** — it drops inline `#` comments on round-trip. `ruamel.yaml` is mandatory.
+- **`schema.py` owns all BATON.md field names.** Don't define section names in `score.py` or anywhere else.
+- **`baton end` is the only LLM command.** `init`, `sync`, `status`, `score` are purely deterministic.
+- Git commits: identity `AriS10223 <220664302+AriS10223@users.noreply.github.com>`, no Claude attribution.
 
 <!-- BATON:START — auto-generated, do not edit by hand -->
 # Baton — Project Context
