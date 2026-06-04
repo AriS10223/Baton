@@ -118,12 +118,23 @@ sessions: []
 # ── .baton.toml template ──────────────────────────────────────────────────────
 
 _BATON_TOML_TEMPLATE = """\
-# .baton.toml — Baton project configuration
+# .baton.toml -- Baton project configuration
 # https://github.com/AriS10223/baton
 
 [baton]
-# llm_provider = "anthropic"    # anthropic | openai | vertex  (used by `baton end`)
-# model = "claude-sonnet-4-6"
+# LLM provider for `baton end`.  Supported: anthropic | openai | vertex
+# Anthropic (default): set ANTHROPIC_API_KEY.  No extra install needed.
+# OpenAI:              set OPENAI_API_KEY.      pip install "baton-cli[openai]"
+# Vertex AI (Gemini):  set GOOGLE_APPLICATION_CREDENTIALS + BATON_VERTEX_PROJECT.
+#                                               pip install "baton-cli[vertex]"
+llm_provider = "anthropic"
+
+# Model to use.  Leave empty to use each provider's built-in default:
+#   anthropic -> claude-sonnet-4-6
+#   openai    -> gpt-4o
+#   vertex    -> gemini-1.5-pro
+# model = ""
+
 min_diff_lines = 10              # minimum changed lines before triggering a summary
 auto_sync = true                 # run `baton sync` automatically after `baton end`
 
@@ -213,3 +224,4 @@ def run_init(repo_root: Path, force: bool = False) -> None:
     console.print("  1. Fill in [bold]BATON.md[/bold] - project name, purpose, stack, laws")
     console.print("  2. Run [bold cyan]baton sync[/bold cyan] to push context to all agent files")
     console.print("  3. Run [bold cyan]baton score[/bold cyan] to check document completeness")
+    console.print("  4. At the end of each session: [bold cyan]baton end[/bold cyan] (requires LLM API key)")

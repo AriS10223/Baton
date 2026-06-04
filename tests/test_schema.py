@@ -15,6 +15,7 @@ from baton.core.schema import (
     _check_laws,
     _check_open_question_statuses,
     _check_project_purpose,
+    _check_sessions,
     _check_sprint_goal,
     _check_stack_entries,
     _check_stack_gotchas,
@@ -23,6 +24,10 @@ from baton.core.schema import (
 
 
 # ── Invariants ────────────────────────────────────────────────────────────────
+
+def test_score_checks_count() -> None:
+    assert len(SCORE_CHECKS) == 12
+
 
 def test_score_checks_total_100() -> None:
     assert sum(c.points for c in SCORE_CHECKS) == 100
@@ -232,3 +237,23 @@ def test_landmines_fail_empty() -> None:
     status, detail, tip = _check_landmines({"landmines": []})
     assert status == "fail"
     assert "intentional" in tip.lower()
+
+
+# ── sessions ──────────────────────────────────────────────────────────────────
+
+def test_check_sessions_pass() -> None:
+    data = {"sessions": [{"date": "2026-01-01", "summary": "x"}]}
+    status, detail, _ = _check_sessions(data)
+    assert status == "pass"
+    assert "1" in detail
+
+
+def test_check_sessions_fail_empty() -> None:
+    status, _, tip = _check_sessions({"sessions": []})
+    assert status == "fail"
+    assert "baton end" in tip
+
+
+def test_check_sessions_fail_missing_key() -> None:
+    status, _, _ = _check_sessions({})
+    assert status == "fail"

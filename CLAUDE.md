@@ -17,7 +17,7 @@ Python 3.10+ required. `tomllib` is stdlib on 3.11+; `tomli` is the conditional 
 ## Running tests
 
 ```bash
-pytest tests/                         # full suite (107 tests)
+pytest tests/                         # full suite
 pytest tests/test_adapters.py -v      # single file
 pytest tests/ -k "test_upsert"        # by name pattern
 ```
@@ -26,11 +26,26 @@ Tests use `tmp_path` (pytest) for filesystem isolation — no mocking. The share
 
 ## Running the CLI during development
 
+After `pip install -e ".[dev]"`, both forms work:
+
 ```bash
-python -m baton.cli score
-python -m baton.cli sync
-python -m baton.cli status
-python -m baton.cli init --force
+baton score
+baton sync
+baton status
+baton init --force
+baton end --force --yes          # --yes skips interactive prompts (good for testing)
+# python -m baton.cli <cmd> works identically
+```
+
+`baton end` requires a provider API key:
+```bash
+# Anthropic (default)
+$env:ANTHROPIC_API_KEY = "sk-ant-..."
+# OpenAI  — also: pip install "baton-cli[openai]"
+$env:OPENAI_API_KEY = "sk-..."
+# Vertex  — also: pip install "baton-cli[vertex]"
+$env:GOOGLE_APPLICATION_CREDENTIALS = "C:\path\to\key.json"
+$env:BATON_VERTEX_PROJECT = "my-gcp-project"
 ```
 
 On Windows with the default CP1252 console, all `console.print()` output must use basic ASCII only. Files written to disk are always UTF-8.
@@ -51,7 +66,25 @@ cli.py (Typer entry point)
          target.write_text(utf-8)
 ```
 
-**`core/schema.py` is the single source of truth.** `SCORE_CHECKS` (11 checks, total 100 pts) lives here and is imported by `score.py`. A module-level `assert` enforces the total at import time — adding a check without rebalancing points fails immediately.
+**Data flow for `baton end`:**
+
+```
+cli.py
+  -> commands/end.py  run_end()
+    -> core/gitdiff.py    head_sha / resolve_base_ref / get_diff / count_changed_lines
+    -> core/summarizer.py build_prompt(diff, data) -> (system, user)
+    -> llm/__init__.py    get_provider(config) -> LLMProvider
+    -> llm/<provider>.py  provider.complete(system, user, model) -> raw text
+    -> core/summarizer.py parse_delta(raw) -> dict
+    -> [review UI]        per-section accept/reject in terminal
+    -> _merge_delta()     append-only writes to ruamel CommentedMap
+    -> BatonDocument.save()  ruamel round-trip preserves inline comments
+    -> commands/sync.py   run_sync() if config.auto_sync
+```
+
+**`core/schema.py` is the single source of truth.** `SCORE_CHECKS` (12 checks, total 100 pts) lives here and is imported by `score.py`. A module-level `assert` enforces the total at import time — adding a check without rebalancing points fails immediately.
+
+**LLM provider abstraction** (`llm/`): `LLMProvider` ABC with `complete(system, user, model) -> str`. Three implementations: `AnthropicProvider` (core dep, uses prompt caching), `OpenAIProvider` (optional `[openai]` extra, lazy import), `VertexProvider` (optional `[vertex]` extra, lazy import). Factory: `get_provider(config)`.
 
 **Managed-block pattern** (`adapters/base.py`): `sync` never replaces a whole file. It only rewrites the region between `BATON:START` and `BATON:END` HTML comment markers via `upsert_managed_block()`. `status.py` uses `extract_managed_block()` + a fresh `adapter.render()` to detect drift without any LLM or git calls.
 

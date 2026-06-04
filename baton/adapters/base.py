@@ -292,6 +292,25 @@ def render_markdown_context(data: dict, tool_name: str = "") -> str:
                     lines.append(f"  - Resolution: {q['resolution']}")
                 lines.append("")
 
+    # ── Recent sessions ───────────────────────────────────────────
+    sessions = _lst("sessions")
+    if sessions:
+        # Show the 3 most recent sessions, newest first.
+        recent = list(sessions[-3:])
+        recent.reverse()
+        lines.append("## Recent Sessions")
+        lines.append("")
+        for s in recent:
+            if isinstance(s, dict):
+                date = s.get("date") or ""
+                s_tool = s.get("tool") or ""
+                summary = s.get("summary") or ""
+                meta = date
+                if s_tool:
+                    meta += f" via {s_tool}"
+                lines.append(f"- {meta} -- {summary}")
+        lines.append("")
+
     return "\n".join(lines)
 
 

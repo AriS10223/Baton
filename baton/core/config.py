@@ -19,9 +19,10 @@ from pathlib import Path
 class BatonConfig:
     """Project-level Baton settings, read from ``.baton.toml``."""
 
-    # ── LLM (used by `baton end` — Increment 2) ───────────────────
+    # ── LLM (used by `baton end`) ──────────────────────────────────
     llm_provider: str = "anthropic"
-    model: str = "claude-sonnet-4-6"
+    # Empty string means "use each provider's own default_model".
+    model: str = ""
 
     # ── Summarizer thresholds (used by `baton end`) ───────────────
     min_diff_lines: int = 10
@@ -58,7 +59,7 @@ class BatonConfig:
 
         return cls(
             llm_provider=baton_section.get("llm_provider", "anthropic"),
-            model=baton_section.get("model", "claude-sonnet-4-6"),
+            model=baton_section.get("model", ""),
             min_diff_lines=int(baton_section.get("min_diff_lines", 10)),
             auto_sync=bool(baton_section.get("auto_sync", True)),
             enabled_adapters=list(adapters_section.get("enabled", [])),

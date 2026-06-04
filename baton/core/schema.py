@@ -207,6 +207,15 @@ def _check_landmines(data: dict):
             "Stops agents 'fixing' things that aren't broken.")
 
 
+def _check_sessions(data: dict):
+    sessions = _get(data, "sessions", default=[]) or []
+    if sessions:
+        n = len(sessions)
+        return ("pass", f"{n} {'entry' if n == 1 else 'entries'}", "")
+    return ("fail", "no sessions yet",
+            "Run `baton end` at the end of a session to capture a summary.")
+
+
 # ── Score checks list ─────────────────────────────────────────────────────────
 # Points column must sum to exactly 100.
 
@@ -218,11 +227,12 @@ SCORE_CHECKS: list[ScoreCheck] = [
     ScoreCheck("stack_gotchas",     "stack gotchas",              5,   2, "recommended", _check_stack_gotchas),
     ScoreCheck("laws",              "laws",                      15,  0, "recommended", _check_laws),
     ScoreCheck("decisions",         "decisions",                 15,  0, "required",    _check_decisions),
-    ScoreCheck("anti_decisions",    "anti_decisions",            15,  0, "recommended", _check_anti_decisions),
+    ScoreCheck("anti_decisions",    "anti_decisions",            10,  0, "recommended", _check_anti_decisions),
     ScoreCheck("sprint_goal",       "current_sprint.goal",       10,  0, "required",    _check_sprint_goal),
     ScoreCheck("inprogress_owners", "in_progress owners",         5,   2, "recommended", _check_inprogress_owners),
     ScoreCheck("open_q_statuses",   "open_questions",             5,   2, "recommended", _check_open_question_statuses),
     ScoreCheck("landmines",         "landmines",                  5,   0, "recommended", _check_landmines),
+    ScoreCheck("sessions",          "sessions",                   5,   0, "recommended", _check_sessions),
 ]
 
 # Enforce the invariant at import time — if you change point values, this fails loudly.

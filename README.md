@@ -1,19 +1,32 @@
 # Baton
 
-> One living onboarding doc. Every agent. Every teammate. Always in sync.
+> Stop re-explaining your project to every AI. One file, every agent, always in sync.
 
-Baton solves the **context-loss problem** for vibe coders: every time you switch between Claude Code, Cursor, and Codex, each agent starts completely blind. It doesn't know you chose Flask over FastAPI, that auth is Supabase-only, or that the filter sidebar is half-built. You re-explain. The agent makes wrong assumptions. Momentum dies.
+[![PyPI](https://img.shields.io/pypi/v/baton-cli)](https://pypi.org/project/baton-cli/)
+[![Python](https://img.shields.io/pypi/pyversions/baton-cli)](https://pypi.org/project/baton-cli/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-150%20passing-brightgreen)](#)
 
-**Baton maintains a single living document — `BATON.md` — and syncs it into every AI agent's native config file automatically.**
+**Baton** is an open-source CLI that solves context-loss when switching between AI coding tools. It keeps a single `BATON.md` as your project's source of truth and syncs it into every agent's native config file — so Claude Code, Cursor, Copilot, Codex, and Gemini all start with full context, no matter which one you used last.
 
 ```
-BATON.md  ←── single source of truth
-    ├── CLAUDE.md
-    ├── AGENTS.md
-    ├── .cursor/rules/baton.mdc
-    ├── GEMINI.md
-    └── .github/copilot-instructions.md
+BATON.md  ←── one file to rule them all
+    ├── CLAUDE.md                          (Claude Code)
+    ├── AGENTS.md                          (OpenAI Codex / ChatGPT)
+    ├── .cursor/rules/baton.mdc            (Cursor)
+    ├── GEMINI.md                          (Gemini CLI)
+    └── .github/copilot-instructions.md   (GitHub Copilot)
 ```
+
+---
+
+## The problem
+
+You're building something with Claude Code. You switch to Cursor to try its inline edit. You come back to Claude Code. It has no idea what Cursor just did. You re-explain the architecture. The agent makes wrong assumptions about your stack. You spend 20 minutes getting it back up to speed.
+
+Multiply that by every tool switch, every new session, every collaborator.
+
+**Baton fixes this by maintaining a single living document that every agent reads.**
 
 ---
 
@@ -23,132 +36,193 @@ BATON.md  ←── single source of truth
 pip install baton-cli
 ```
 
-Or for development:
-
-```bash
-git clone https://github.com/AriS10223/baton
-cd baton
-pip install -e ".[dev]"
-```
+Python 3.10+ required.
 
 ---
 
 ## Quickstart
 
 ```bash
-# 1. Initialise in your project root
-cd my-project
+# 1. In your project root
 baton init
 
-# 2. Fill in BATON.md — your project name, purpose, stack, laws
-#    (takes 5–10 minutes the first time)
+# 2. Fill in BATON.md — takes 5–10 minutes the first time
+#    Add your project purpose, stack (with why + gotchas), laws, decisions
 
-# 3. Push to all agent config files
+# 3. Push context to all agent files
 baton sync
 
-# 4. Check completeness
-baton score
+# 4. Switch to any AI tool — it reads its native config and knows your project
 
-# 5. See which files are in sync
-baton status
+# 5. At the end of a session, let the LLM capture what changed
+baton end
 ```
-
-Now open Claude Code, Cursor, or Codex — each tool reads its native config file and picks up your full project context instantly.
 
 ---
 
 ## Commands
 
-| Command | Description |
+| Command | What it does |
 |---------|-------------|
 | `baton init` | Scaffold `BATON.md`, `.baton.toml`, and a pre-commit reminder hook |
 | `baton sync` | Push `BATON.md` → all enabled agent config files |
 | `baton status` | Show which files are in-sync, drifted, or missing |
-| `baton score` | Evaluate `BATON.md` completeness (no LLM — purely structural) |
-| `baton end` | *(Increment 2)* Summarise the current session into `BATON.md` |
+| `baton score` | Score your `BATON.md` completeness out of 100 (no LLM — structural only) |
+| `baton end` | Summarise the session into `BATON.md` via your configured LLM |
 
 ---
 
-## BATON.md
+## How it works
 
-The schema has 10 sections. The most important ones:
+### `baton sync` — deterministic, no LLM
 
-| Section | Why it matters |
-|---------|---------------|
-| `project` | Name, purpose, target user, stage |
-| `stack` | Tool + version + **why** + **gotchas** |
-| `laws` | Hard constraints agents must never violate |
-| `decisions` | Things explicitly chosen — append-only |
-| `anti_decisions` | Things explicitly ruled out — stops re-suggestions |
-| `landmines` | Code that looks wrong but is intentional |
-| `current_sprint` | What's done, in progress, blocked, up next |
-| `open_questions` | Unresolved items — agents must not decide these unilaterally |
-
-The `why` in `stack` stops agents switching frameworks. The `anti_decisions` stops them re-suggesting approaches you already rejected. The `landmines` stops them "fixing" things that aren't broken.
-
----
-
-## Supported agents
-
-| Adapter | File |
-|---------|------|
-| Claude Code | `CLAUDE.md` |
-| OpenAI Codex | `AGENTS.md` |
-| Cursor | `.cursor/rules/baton.mdc` |
-| Gemini CLI | `GEMINI.md` |
-| GitHub Copilot | `.github/copilot-instructions.md` |
-
-**Adding a new agent tool takes ~50 lines.** See [CONTRIBUTING.md](CONTRIBUTING.md).
-
----
-
-## How sync works
-
-`baton sync` **never overwrites** your existing agent files. It only updates a managed region between HTML comment markers:
+Baton never overwrites your existing agent files. It only updates a managed region between HTML comment markers, leaving all your hand-written content untouched:
 
 ```
 <!-- BATON:START — auto-generated, do not edit by hand -->
-... rendered content ...
+... rendered context from BATON.md ...
 <!-- BATON:END -->
 ```
 
-Any hand-written content outside this region is preserved exactly.
+`baton status` detects drift between `BATON.md` and your agent files without any LLM call.
+
+### `baton end` — LLM-powered session capture
+
+At the end of a coding session, `baton end`:
+
+1. Reads your git diff since the last `baton end` (commit-aware — captures all mid-session commits)
+2. Sends it to your configured LLM with the current project context
+3. Proposes sprint updates and a session log entry for your review
+4. Writes your approved changes back to `BATON.md` and re-syncs all agent files
+
+```bash
+# Anthropic Claude (default)
+export ANTHROPIC_API_KEY=sk-ant-...
+baton end
+
+# Review what the LLM proposes, accept/reject per section
+# Or skip prompts entirely
+baton end --yes
+
+# Diff from a specific commit
+baton end --since main
+
+# Record which tool you used this session
+baton end --tool cursor
+```
+
+---
+
+## LLM-agnostic
+
+Baton works with whichever LLM you use. Set `llm_provider` in `.baton.toml`:
+
+| Provider | Install | Auth |
+|----------|---------|------|
+| **Anthropic** (Claude) — default | *(included)* | `ANTHROPIC_API_KEY` |
+| **OpenAI** (GPT-4o, o1, etc.) | `pip install "baton-cli[openai]"` | `OPENAI_API_KEY` |
+| **Google Vertex AI** (Gemini) | `pip install "baton-cli[vertex]"` | `GOOGLE_APPLICATION_CREDENTIALS` + `BATON_VERTEX_PROJECT` |
+
+```toml
+# .baton.toml
+[baton]
+llm_provider = "openai"   # anthropic | openai | vertex
+# model = "gpt-4o"        # leave empty to use each provider's default
+```
+
+The model is also configurable — use whatever you have access to.
+
+---
+
+## What lives in BATON.md
+
+BATON.md is a Markdown file with a single YAML block inside. The schema is designed to give agents everything they need to contribute without breaking things:
+
+| Section | Why agents need it |
+|---------|-------------------|
+| `project` | Name, purpose, target user, stage |
+| `stack` | Tool + version + **why you chose it** + **gotchas to avoid** |
+| `laws` | Hard constraints agents must never violate |
+| `decisions` | Architectural choices — append-only, so agents know the reasoning |
+| `anti_decisions` | Things explicitly ruled out — stops agents re-suggesting rejected ideas |
+| `landmines` | Code that looks wrong but is intentional — stops agents "fixing" it |
+| `current_sprint` | Done, in-progress, blocked, up-next |
+| `open_questions` | Unresolved decisions agents must not make unilaterally |
+| `sessions` | Running log of what happened each session (written by `baton end`) |
+
+`baton score` grades your BATON.md out of 100 based on how complete these sections are.
+
+---
+
+## Supported AI coding tools
+
+| Tool | Config file synced | Auto-detected |
+|------|--------------------|---------------|
+| [Claude Code](https://claude.ai/code) | `CLAUDE.md` | Yes |
+| [Cursor](https://cursor.com) | `.cursor/rules/baton.mdc` | Yes (`.cursor/` dir) |
+| [GitHub Copilot](https://github.com/features/copilot) | `.github/copilot-instructions.md` | Yes |
+| [OpenAI Codex / ChatGPT](https://openai.com) | `AGENTS.md` | Yes |
+| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | `GEMINI.md` | Yes |
+
+**Don't see your tool?** Adding a new adapter is ~50 lines. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
 ## Configuration
 
-`.baton.toml` in your project root:
-
 ```toml
+# .baton.toml
+
 [baton]
-min_diff_lines = 10    # minimum diff lines before triggering a summary
+llm_provider = "anthropic"   # anthropic | openai | vertex
+# model = ""                 # empty = use provider default (claude-sonnet-4-6, gpt-4o, gemini-1.5-pro)
+min_diff_lines = 10          # skip baton end if the diff is smaller than this
 
 [adapters]
-enabled = ["claude", "codex", "cursor"]  # which adapters to sync
+enabled = ["claude", "cursor", "copilot"]  # explicit list, or omit to auto-detect
 ```
 
-Omit `[adapters]` and Baton auto-detects from existing files in the repo root.
+Baton auto-detects which agents you use by scanning for their config files in the repo root. You only need `.baton.toml` if you want to override the defaults.
+
+---
+
+## Why open source
+
+Context management for AI coding tools shouldn't be a SaaS lock-in. Your project context belongs in your repo. `BATON.md` is a plain Markdown file you own, commit, and version-control like any other file. Baton is MIT-licensed and designed to stay that way.
 
 ---
 
 ## Roadmap
 
-| Phase | Status |
-|-------|--------|
-| Phase 1 Increment 1: `init`, `sync`, `status`, `score` | ✅ Current |
-| Phase 1 Increment 2: `baton end` (AI summariser + review UI) | 🔜 Next |
-| Phase 2: Team collaboration, PR flow, GitHub Actions | 📅 Planned |
-| Phase 3: Web dashboard, MCP server | 📅 Future |
+| | |
+|-|-|
+| `baton init` / `sync` / `status` / `score` | Done |
+| `baton end` — LLM session summariser, multi-provider | Done |
+| Team sync — shared BATON.md, PR-time updates | Planned |
+| GitHub Actions integration | Planned |
+| MCP server — expose BATON.md to any MCP-compatible agent | Planned |
+| Web dashboard | Future |
 
 ---
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). The best first contribution is adding a new agent adapter (~50 lines).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Good first contributions:
+
+- **New agent adapter** — add support for a new AI coding tool (~50 lines, well-documented pattern)
+- **New LLM provider** — add a new backend to `baton/llm/` (~30 lines, follows the existing pattern)
+- **Bug reports and feedback** — open an issue
 
 ---
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
+
+---
+
+## Related
+
+If you're building with AI coding tools and hitting the context problem, these keywords might have brought you here:
+
+`ai coding assistant` · `claude code` · `cursor ide` · `github copilot` · `gemini cli` · `codex` · `ai context management` · `vibe coding` · `ai pair programming` · `multi-agent workflow` · `llm context` · `ai developer tools` · `prompt engineering` · `coding agent` · `ai session management` · `llm-agnostic` · `anthropic` · `openai` · `google gemini`

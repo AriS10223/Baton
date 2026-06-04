@@ -1,8 +1,7 @@
 """
 cli.py — Baton CLI entry point.
 
-Registers the four Phase-1 commands (init / sync / status / score).
-The ``baton end`` command (Increment 2, requires LLM) is a stub here.
+Registers all five commands: init / sync / status / score / end.
 """
 from __future__ import annotations
 
@@ -11,6 +10,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
+from .commands.end import run_end
 from .commands.init import run_init
 from .commands.score import run_score
 from .commands.status import run_status
@@ -70,7 +70,7 @@ def score() -> None:
     run_score(_repo_root())
 
 
-# ── Stub for Increment 2 ──────────────────────────────────────────────────────
+# ── baton end ─────────────────────────────────────────────────────────────────
 
 @app.command()
 def end(
@@ -79,22 +79,41 @@ def end(
         "--force",
         help="Trigger even if the diff is below the minimum line threshold.",
     ),
+    since: str | None = typer.Option(
+        None,
+        "--since",
+        help="Override the base git ref to diff from (SHA or branch name).",
+    ),
+    tool: str = typer.Option(
+        "",
+        "--tool",
+        help="Name of the AI tool used this session (e.g. claude-code, cursor).",
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Accept all proposed changes without interactive prompts.",
+    ),
 ) -> None:
-    """Summarise the current session into BATON.md (requires LLM — Increment 2).
+    """Summarise the current session into [bold]BATON.md[/bold] via LLM.
 
-    [dim]Not yet implemented.  Coming in Increment 2:[/dim]
-    [dim]  1. Parse git diff (Pass 1)[/dim]
-    [dim]  2. Generate YAML delta via Anthropic Claude (Pass 2)[/dim]
-    [dim]  3. Human review in terminal[/dim]
-    [dim]  4. Update BATON.md + run baton sync[/dim]
+    Reads the git diff since the last ``baton end`` run, asks your configured
+    LLM to propose sprint-done / sprint-next / session-log updates, lets you
+    review them, then writes them back to BATON.md and re-syncs agent files.
+
+    Requires the ANTHROPIC_API_KEY environment variable (or OPENAI_API_KEY /
+    GOOGLE_APPLICATION_CREDENTIALS depending on llm_provider in .baton.toml).
     """
-    console.print(
-        "[yellow]`baton end` is not yet implemented.[/yellow]\n"
-        "It is coming in Increment 2 (AI summariser + review UI).\n\n"
-        "For now, update [bold]BATON.md[/bold] manually, then run "
-        "[bold]baton sync[/bold]."
+    ok = run_end(
+        _repo_root(),
+        force=force,
+        since=since,
+        tool=tool,
+        auto_accept=yes,
     )
-    raise typer.Exit(0)
+    if not ok:
+        raise typer.Exit(1)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
