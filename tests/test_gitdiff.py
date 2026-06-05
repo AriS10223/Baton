@@ -165,3 +165,24 @@ def test_count_changed_lines_empty_diff() -> None:
 def test_count_changed_lines_only_context_lines() -> None:
     diff = " context line\n context line 2\n"
     assert count_changed_lines(diff) == 0
+
+
+# ── resolve_base_ref edge cases ───────────────────────────────────────────────
+
+def test_resolve_base_ref_empty_commit_string_returns_none() -> None:
+    data = {"sessions": [{"date": "2026-01-01", "commit": ""}]}
+    result = resolve_base_ref(data, since=None)
+    assert result is None
+
+
+def test_resolve_base_ref_since_overrides_even_when_sessions_present() -> None:
+    data = {"sessions": [{"commit": "stored-sha"}]}
+    result = resolve_base_ref(data, since="override-sha")
+    assert result == "override-sha"
+
+
+def test_get_diff_empty_returns_string(repo: Path) -> None:
+    """A clean repo with no uncommitted changes should return an empty-ish diff."""
+    make_commit(repo, "readme.txt", "hello\n")
+    diff = get_diff(repo, None)
+    assert isinstance(diff, str)

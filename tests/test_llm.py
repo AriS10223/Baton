@@ -119,6 +119,26 @@ def test_vertex_provider_missing_sdk_raises() -> None:
             provider.complete("system", "user", "gemini-1.5-pro")
 
 
+# ── Provider name case-insensitivity ─────────────────────────────────────────
+
+def test_get_provider_uppercase_name() -> None:
+    config = BatonConfig(llm_provider="ANTHROPIC")
+    provider = get_provider(config)
+    assert isinstance(provider, AnthropicProvider)
+
+
+def test_get_provider_mixed_case_name() -> None:
+    config = BatonConfig(llm_provider="OpenAI")
+    provider = get_provider(config)
+    assert isinstance(provider, OpenAIProvider)
+
+
+def test_get_provider_uppercase_vertex() -> None:
+    config = BatonConfig(llm_provider="VERTEX")
+    provider = get_provider(config)
+    assert isinstance(provider, VertexProvider)
+
+
 def test_anthropic_provider_missing_api_key_raises() -> None:
     """AnthropicProvider.complete() must raise RuntimeError when key is absent.
 

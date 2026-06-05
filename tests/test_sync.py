@@ -109,3 +109,26 @@ def test_sync_cursor_only_one_baton_block_after_two_syncs(repo: Path) -> None:
     run_sync(repo, quiet=True)
     content = (repo / ".cursor" / "rules" / "baton.mdc").read_text(encoding="utf-8")
     assert content.count(MARKER_START) == 1
+
+
+# ── .baton.toml adapter overrides ────────────────────────────────────────────
+
+def test_sync_respects_enabled_adapters_in_toml(repo: Path) -> None:
+    """When .baton.toml limits adapters to ['claude'], only CLAUDE.md is written."""
+    (repo / ".baton.toml").write_text(
+        '[adapters]\nenabled = ["claude"]\n', encoding="utf-8"
+    )
+    run_sync(repo, quiet=True)
+    assert (repo / "CLAUDE.md").exists()
+    assert not (repo / "AGENTS.md").exists()
+    assert not (repo / "GEMINI.md").exists()
+
+
+def test_sync_with_multiple_explicit_adapters(repo: Path) -> None:
+    (repo / ".baton.toml").write_text(
+        '[adapters]\nenabled = ["claude", "codex"]\n', encoding="utf-8"
+    )
+    run_sync(repo, quiet=True)
+    assert (repo / "CLAUDE.md").exists()
+    assert (repo / "AGENTS.md").exists()
+    assert not (repo / "GEMINI.md").exists()

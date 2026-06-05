@@ -232,3 +232,36 @@ def test_get_adapters_instantiates_correct_types() -> None:
 def test_get_adapters_skips_unknown_names() -> None:
     adapters = get_adapters(["claude", "nonexistent_tool"])
     assert len(adapters) == 1
+
+
+# ── upsert_managed_block with regex-special content ──────────────────────────
+
+def test_upsert_content_with_backslashes() -> None:
+    content = "# Path: C:\\Users\\aryan\\project\\\nresult = re.sub(r'\\n', '', text)"
+    result = upsert_managed_block("", content)
+    extracted = extract_managed_block(result)
+    assert "C:\\Users\\aryan" in extracted
+
+
+def test_upsert_content_with_dollar_signs() -> None:
+    content = "price = $100\nvariable = $HOME/bin"
+    result = upsert_managed_block("", content)
+    extracted = extract_managed_block(result)
+    assert "$100" in extracted
+    assert "$HOME" in extracted
+
+
+# ── render_markdown_context with sessions ────────────────────────────────────
+
+def test_render_includes_session_history(sample_data: dict) -> None:
+    sample_data["sessions"] = [
+        {"date": "2026-06-05", "tool": "claude-code", "summary": "Built the login flow", "highlights": []}
+    ]
+    rendered = render_markdown_context(sample_data)
+    assert "Built the login flow" in rendered
+
+
+def test_render_with_empty_sessions_does_not_crash(sample_data: dict) -> None:
+    sample_data["sessions"] = []
+    rendered = render_markdown_context(sample_data)
+    assert isinstance(rendered, str)

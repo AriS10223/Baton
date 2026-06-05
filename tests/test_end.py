@@ -323,6 +323,105 @@ def test_run_end_skips_when_diff_small(tmp_path: Path) -> None:
 
 # ── End-to-end integration test ───────────────────────────────────────────────
 
+# ── run_end error paths ───────────────────────────────────────────────────────
+
+def test_run_end_returns_false_when_no_baton_md(tmp_path: Path) -> None:
+    """run_end must return False (not raise) if BATON.md is missing."""
+    git(["init"], tmp_path)
+    git(["config", "user.email", "test@test.com"], tmp_path)
+    git(["config", "user.name", "Test"], tmp_path)
+
+    result = run_end(tmp_path, summarizer=raising_summarizer, auto_accept=True)
+    assert result is False
+
+
+def test_run_end_returns_false_when_git_has_no_commits(tmp_path: Path) -> None:
+    """run_end must return False gracefully when the repo has no commits yet."""
+    git(["init"], tmp_path)
+    git(["config", "user.email", "test@test.com"], tmp_path)
+    git(["config", "user.name", "Test"], tmp_path)
+
+    baton_path = tmp_path / "BATON.md"
+    baton_path.write_bytes(SAMPLE_BATON.read_bytes())
+
+    result = run_end(tmp_path, summarizer=fake_summarizer, auto_accept=True, force=True)
+    assert result is False
+
+
+def test_run_end_uses_since_parameter(tmp_path: Path) -> None:
+    """--since overrides base_ref; diff should include commits after that SHA."""
+    git(["init"], tmp_path)
+    git(["config", "user.email", "test@test.com"], tmp_path)
+    git(["config", "user.name", "Test"], tmp_path)
+
+    baton_path = tmp_path / "BATON.md"
+    baton_path.write_bytes(SAMPLE_BATON.read_bytes())
+    make_commit(tmp_path, "BATON.md", baton_path.read_text(encoding="utf-8"))
+    base_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=tmp_path, capture_output=True, text=True
+    ).stdout.strip()
+
+    (tmp_path / "file.py").write_text("\n".join(f"x{i} = {i}" for i in range(20)))
+    make_commit(tmp_path, "file.py", (tmp_path / "file.py").read_text(encoding="utf-8"))
+
+    result = run_end(
+        tmp_path,
+        since=base_sha,
+        summarizer=fake_summarizer,
+        auto_accept=True,
+        force=True,
+    )
+    assert result is True
+    doc = BatonDocument.load(baton_path)
+    assert len(list(doc.data["sessions"])) >= 1
+
+
+# ── parse_delta null/edge-case safety ─────────────────────────────────────────
+
+def test_parse_delta_missing_session_key() -> None:
+    raw = json.dumps({"sprint_done": ["X"], "sprint_next": []})
+    result = parse_delta(raw)
+    assert result["session"]["summary"] == ""
+    assert result["session"]["highlights"] == []
+
+
+def test_parse_delta_missing_sprint_keys() -> None:
+    raw = json.dumps({"session": {"summary": "ok", "highlights": []}})
+    result = parse_delta(raw)
+    assert result["sprint_done"] == []
+    assert result["sprint_next"] == []
+
+
+def test_parse_delta_sprint_next_as_plain_strings() -> None:
+    raw = json.dumps({
+        "session": {"summary": "x", "highlights": []},
+        "sprint_done": [],
+        "sprint_next": ["plain string task"],
+    })
+    result = parse_delta(raw)
+    assert result["sprint_next"][0]["feature"] == "plain string task"
+    assert result["sprint_next"][0]["priority"] == "medium"
+
+
+def test_parse_delta_null_highlights_coerced_to_list() -> None:
+    raw = json.dumps({
+        "session": {"summary": "x", "highlights": None},
+        "sprint_done": [],
+        "sprint_next": [],
+    })
+    result = parse_delta(raw)
+    assert result["session"]["highlights"] == []
+
+
+# ── _merge_delta edge cases ───────────────────────────────────────────────────
+
+def test_merge_delta_null_session_does_not_append(loaded_doc: BatonDocument) -> None:
+    original_count = len(list(loaded_doc.data["sessions"]))
+    accepted = {"sprint_done": [], "sprint_next": [], "session": None}
+    _merge_delta(loaded_doc.data, accepted, sha=None, tool="", today="2026-06-05")
+    assert len(list(loaded_doc.data["sessions"])) == original_count
+
+
 def test_run_end_end_to_end(tmp_path: Path) -> None:
     """Full pipeline: real git repo, BATON.md, fake summarizer, auto_accept.
     Asserts BATON.md gains a sessions entry and CLAUDE.md is written."""

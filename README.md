@@ -5,7 +5,7 @@
 [![PyPI](https://img.shields.io/pypi/v/baton-pass)](https://pypi.org/project/baton-pass/)
 [![Python](https://img.shields.io/pypi/pyversions/baton-pass)](https://pypi.org/project/baton-pass/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-150%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-184%20passing-brightgreen)](#)
 
 **Baton** is an open-source CLI that solves context-loss when switching between AI coding tools. It keeps a single `BATON.md` as your project's source of truth and syncs it into every agent's native config file — so Claude Code, Cursor, Copilot, Codex, and Gemini all start with full context, no matter which one you used last.
 
