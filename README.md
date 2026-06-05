@@ -2,8 +2,7 @@
 
 > Stop re-explaining your project to every AI. One file, every agent, always in sync.
 
-[![PyPI](https://img.shields.io/pypi/v/baton-cli)](https://pypi.org/project/baton-cli/)
-[![Python](https://img.shields.io/pypi/pyversions/baton-cli)](https://pypi.org/project/baton-cli/)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-150%20passing-brightgreen)](#)
 
@@ -33,7 +32,9 @@ Multiply that by every tool switch, every new session, every collaborator.
 ## Install
 
 ```bash
-pip install baton-cli
+git clone https://github.com/AriS10223/Baton.git
+cd Baton
+pip install -e .
 ```
 
 Python 3.10+ required.
