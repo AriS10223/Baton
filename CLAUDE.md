@@ -33,7 +33,8 @@ baton score
 baton sync
 baton status
 baton init --force
-baton end --force --yes          # --yes skips interactive prompts (good for testing)
+baton end --force --yes                  # --yes skips interactive prompts (good for testing)
+baton end --since <sha-or-branch>        # override the base ref for the diff
 # python -m baton.cli <cmd> works identically
 ```
 
@@ -84,7 +85,11 @@ cli.py
 
 **`core/schema.py` is the single source of truth.** `SCORE_CHECKS` (12 checks, total 100 pts) lives here and is imported by `score.py`. A module-level `assert` enforces the total at import time — adding a check without rebalancing points fails immediately.
 
-**LLM provider abstraction** (`llm/`): `LLMProvider` ABC with `complete(system, user, model) -> str`. Three implementations: `AnthropicProvider` (core dep, uses prompt caching), `OpenAIProvider` (optional `[openai]` extra, lazy import), `VertexProvider` (optional `[vertex]` extra, lazy import). Factory: `get_provider(config)`.
+**LLM provider abstraction** (`llm/`): `LLMProvider` ABC with `complete(system, user, model) -> str`. Three implementations: `AnthropicProvider` (core dep, uses prompt caching on the static system block), `OpenAIProvider` (optional `[openai]` extra, lazy import), `VertexProvider` (optional `[vertex]` extra, lazy import). Factory: `get_provider(config)`.
+
+**Diff strategy** (`core/gitdiff.py`): `resolve_base_ref` reads the `commit` SHA from the last session entry in BATON.md so each `baton end` diffs from where the previous session ended. Falls back to `git diff HEAD` on first run. Diffs are capped at 24k chars to avoid blowing the LLM token budget.
+
+**Injectable summarizer seam**: `run_end()` accepts a `summarizer` keyword argument (`(system, user, config) -> str`). Tests pass a fake that returns canned JSON — no real LLM call needed. Do not remove or change this signature.
 
 **Managed-block pattern** (`adapters/base.py`): `sync` never replaces a whole file. It only rewrites the region between `BATON:START` and `BATON:END` HTML comment markers via `upsert_managed_block()`. `status.py` uses `extract_managed_block()` + a fresh `adapter.render()` to detect drift without any LLM or git calls.
 
@@ -108,7 +113,7 @@ Create `baton/adapters/mytool.py`, subclass `BaseAdapter`, implement `render()` 
 
 - **Never use PyYAML** — it drops inline `#` comments on round-trip. `ruamel.yaml` is mandatory.
 - **`schema.py` owns all BATON.md field names.** Don't define section names in `score.py` or anywhere else.
-- **`baton end` is the only LLM command.** `init`, `sync`, `status`, `score` are purely deterministic.
+- **`baton end` is the only LLM command.** `init`, `sync`, `status`, `score` are purely deterministic — no network calls.
 - Git commits: identity `AriS10223 <220664302+AriS10223@users.noreply.github.com>`, no Claude attribution.
 
 <!-- BATON:START — auto-generated, do not edit by hand -->
