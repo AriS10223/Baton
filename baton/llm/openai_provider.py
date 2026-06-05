@@ -48,14 +48,17 @@ class OpenAIProvider(LLMProvider):
 
         client = openai.OpenAI(api_key=api_key)
 
-        response = client.chat.completions.create(
-            model=model,
-            max_tokens=2048,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-        )
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                max_tokens=2048,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+            )
+        except Exception as exc:
+            raise RuntimeError(f"OpenAI API error: {exc}") from exc
 
         text = response.choices[0].message.content
         if text is None:

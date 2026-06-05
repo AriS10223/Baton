@@ -63,9 +63,14 @@ class VertexProvider(LLMProvider):
         # prepend the system instructions to the user content.
         combined_prompt = f"{system}\n\n---\n\n{user}"
         vertex_model = GenerativeModel(model)
-        response = vertex_model.generate_content(combined_prompt)
 
-        text = response.text
+        try:
+            response = vertex_model.generate_content(combined_prompt)
+            # Accessing .text raises ValueError on safety-blocked responses.
+            text = response.text
+        except Exception as exc:
+            raise RuntimeError(f"Vertex AI error: {exc}") from exc
+
         if not text:
             raise RuntimeError(
                 "Vertex AI returned no text content in the response."

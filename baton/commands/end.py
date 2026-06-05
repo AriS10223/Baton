@@ -27,6 +27,7 @@ from rich.table import Table
 from ..core.config import BatonConfig
 from ..core.document import BatonDocument, BatonDocumentError
 from ..core.gitdiff import GitError, count_changed_lines, get_diff, head_sha, resolve_base_ref
+from ..core.schema import feature_label
 from ..core.summarizer import build_prompt, parse_delta
 from ..core.summarizer import summarize as _default_summarizer
 
@@ -128,13 +129,18 @@ def run_end(
     if tool:
         doc.data["last_session_tool"] = tool
 
-    doc.save()
+    try:
+        doc.save()
+    except OSError as exc:
+        console.print(f"[red]Error saving BATON.md:[/red] {exc}")
+        return False
     console.print("[green]BATON.md updated.[/green]")
 
     # ── 7. Auto-sync ──────────────────────────────────────────────
     if config.auto_sync:
         from ..commands.sync import run_sync
-        run_sync(repo_root)
+        if not run_sync(repo_root):
+            console.print("[yellow]Warning:[/yellow] auto-sync failed. Run 'baton sync' manually.")
 
     return True
 
@@ -211,6 +217,16 @@ def _review(delta: dict, auto_accept: bool) -> dict | None:
 
 # ── Merge ─────────────────────────────────────────────────────────────────────
 
+def _append_sprint_items(seq, new_items: list, make_entry) -> None:
+    """Append items from *new_items* into *seq*, skipping duplicates by feature label."""
+    existing = {feature_label(i) for i in seq}
+    for item in new_items:
+        label = feature_label(item)
+        if label not in existing:
+            seq.append(make_entry(item))
+            existing.add(label)
+
+
 def _merge_delta(
     data: dict,
     accepted: dict,
@@ -224,45 +240,30 @@ def _merge_delta(
     Plain Python dicts/lists are safe to append into CommentedSeq --
     ruamel serialises them correctly on the next save() call.
     """
+    sprint = data.get("current_sprint")
+
     # ── Sprint done ───────────────────────────────────────────────
     new_done = accepted.get("sprint_done") or []
-    if new_done:
-        sprint = data.get("current_sprint")
-        if sprint is not None:
-            done_list = sprint.get("done")
-            if done_list is not None:
-                existing_features = {
-                    (item.get("feature") or str(item))
-                    if isinstance(item, dict)
-                    else str(item)
-                    for item in done_list
-                }
-                for feature_str in new_done:
-                    if feature_str not in existing_features:
-                        done_list.append({"feature": feature_str, "confidence": "stable"})
-                        existing_features.add(feature_str)
+    if new_done and sprint is not None:
+        done_list = sprint.get("done")
+        if done_list is not None:
+            _append_sprint_items(
+                done_list, new_done,
+                lambda s: {"feature": s, "confidence": "stable"},
+            )
 
     # ── Sprint next ───────────────────────────────────────────────
     new_next = accepted.get("sprint_next") or []
-    if new_next:
-        sprint = data.get("current_sprint")
-        if sprint is not None:
-            next_list = sprint.get("next")
-            if next_list is not None:
-                existing_features = {
-                    (item.get("feature") or str(item))
-                    if isinstance(item, dict)
-                    else str(item)
-                    for item in next_list
-                }
-                for item in new_next:
-                    feature = item.get("feature", "")
-                    if feature not in existing_features:
-                        next_list.append({
-                            "feature": feature,
-                            "priority": item.get("priority", "medium"),
-                        })
-                        existing_features.add(feature)
+    if new_next and sprint is not None:
+        next_list = sprint.get("next")
+        if next_list is not None:
+            _append_sprint_items(
+                next_list, new_next,
+                lambda item: {
+                    "feature": feature_label(item),
+                    "priority": item.get("priority", "medium") if isinstance(item, dict) else "medium",
+                },
+            )
 
     # ── Session log ───────────────────────────────────────────────
     session_payload = accepted.get("session")

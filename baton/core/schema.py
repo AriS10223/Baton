@@ -68,6 +68,13 @@ def _get(data: dict, *keys, default=None):
     return v if v is not None else default
 
 
+def feature_label(item) -> str:
+    """Return the feature string from a sprint item (dict with 'feature' key or plain string)."""
+    if isinstance(item, dict):
+        return item.get("feature") or str(item)
+    return str(item)
+
+
 # ── Individual check functions ────────────────────────────────────────────────
 
 def _check_project_purpose(data: dict):

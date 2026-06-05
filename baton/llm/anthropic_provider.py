@@ -50,21 +50,24 @@ class AnthropicProvider(LLMProvider):
 
         client = anthropic.Anthropic(api_key=api_key)
 
-        response = client.messages.create(
-            model=model,
-            max_tokens=2048,
-            # System block with cache_control so the static instruction prefix
-            # is cached. The per-run user message (project brief + diff) is not
-            # marked for caching since it changes every run.
-            system=[
-                {
-                    "type": "text",
-                    "text": system,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            messages=[{"role": "user", "content": user}],
-        )
+        try:
+            response = client.messages.create(
+                model=model,
+                max_tokens=2048,
+                # System block with cache_control so the static instruction prefix
+                # is cached. The per-run user message (project brief + diff) is not
+                # marked for caching since it changes every run.
+                system=[
+                    {
+                        "type": "text",
+                        "text": system,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+                messages=[{"role": "user", "content": user}],
+            )
+        except Exception as exc:
+            raise RuntimeError(f"Anthropic API error: {exc}") from exc
 
         for block in response.content:
             if block.type == "text":

@@ -15,6 +15,7 @@ import json
 import re
 
 from ..core.config import BatonConfig
+from ..core.schema import feature_label
 
 # ── Static system block ───────────────────────────────────────────────────────
 # This text is identical on every baton end run, so the Anthropic provider
@@ -81,13 +82,7 @@ def build_prompt(diff_text: str, data: dict) -> tuple[str, str]:
     for key, label in [("done", "Done"), ("in_progress", "In progress"), ("next", "Up next")]:
         items = sprint.get(key) or []
         if items:
-            labels = []
-            for item in items:
-                if isinstance(item, dict):
-                    labels.append(item.get("feature") or str(item))
-                else:
-                    labels.append(str(item))
-            sprint_lines.append(f"{label}: {', '.join(labels)}")
+            sprint_lines.append(f"{label}: {', '.join(feature_label(i) for i in items)}")
 
     diff_section = diff_text.strip() if diff_text.strip() else "(no diff -- working tree is clean)"
 
@@ -136,10 +131,16 @@ def parse_delta(raw: str) -> dict:
     """
     text = raw.strip()
 
-    # Strip markdown fences if present.
-    fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
+    # Strip markdown fences if present.  Prefer an explicit ```json fence;
+    # fall back to any fence.  If the extracted content has no '{', it's not
+    # the JSON block (e.g. a diff example) — skip it and scan the full text.
+    fence_match = re.search(r"```json\s*([\s\S]*?)```", text)
+    if not fence_match:
+        fence_match = re.search(r"```\s*([\s\S]*?)```", text)
     if fence_match:
-        text = fence_match.group(1).strip()
+        candidate = fence_match.group(1).strip()
+        if "{" in candidate:
+            text = candidate
 
     # Extract the outermost {...} block in case there's surrounding prose.
     brace_match = re.search(r"\{[\s\S]*\}", text)
