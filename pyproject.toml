@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "baton-cli"
+name = "baton-pass"
 version = "0.1.0"
 description = "One living onboarding doc. Every agent. Every teammate. Always in sync."
 readme = "README.md"
