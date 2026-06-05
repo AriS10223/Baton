@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project is
 
-**Baton** is a Python CLI (`pip install baton-cli`) that solves context-loss for vibe coders switching between AI coding tools. It keeps a single `BATON.md` as the source of truth and syncs it into every agent's native config file (`CLAUDE.md`, `AGENTS.md`, `.cursor/rules/baton.mdc`, `GEMINI.md`, `.github/copilot-instructions.md`) so context survives tool switches.
+**Baton** is a Python CLI (`pip install baton-pass`) that solves context-loss for vibe coders switching between AI coding tools. It keeps a single `BATON.md` as the source of truth and syncs it into every agent's native config file (`CLAUDE.md`, `AGENTS.md`, `.cursor/rules/baton.mdc`, `GEMINI.md`, `.github/copilot-instructions.md`) so context survives tool switches.
 
 ## Development setup
 
