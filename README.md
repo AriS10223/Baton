@@ -120,8 +120,8 @@ Baton works with whichever LLM you use. Set `llm_provider` in `.baton.toml`:
 | Provider | Install | Auth |
 |----------|---------|------|
 | **Anthropic** (Claude) — default | *(included)* | `ANTHROPIC_API_KEY` |
-| **OpenAI** (GPT-4o, o1, etc.) | `pip install "baton-cli[openai]"` | `OPENAI_API_KEY` |
-| **Google Vertex AI** (Gemini) | `pip install "baton-cli[vertex]"` | `GOOGLE_APPLICATION_CREDENTIALS` + `BATON_VERTEX_PROJECT` |
+| **OpenAI** (GPT-4o, o1, etc.) | `pip install "baton-pass[openai]"` | `OPENAI_API_KEY` |
+| **Google Vertex AI** (Gemini) | `pip install "baton-pass[vertex]"` | `GOOGLE_APPLICATION_CREDENTIALS` + `BATON_VERTEX_PROJECT` |
 
 ```toml
 # .baton.toml
@@ -218,6 +218,32 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Good first contributions:
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+---
+
+## Changelog
+
+### 0.1.1 — 2026-06-05
+
+**Bug fixes**
+- `baton end` no longer crashes with a raw traceback when an API key is wrong, expired, or rate-limited — all three LLM providers (Anthropic, OpenAI, Vertex) now catch SDK exceptions and surface a clean error message
+- `baton end` now returns a clean error if saving `BATON.md` fails (e.g. permission denied) instead of raising an unhandled exception
+- Fixed a parse error in `baton end` where a code example before the JSON block in the LLM response (e.g. a diff snippet) caused the fence-stripping regex to extract the wrong block — the parser now prefers ```` ```json ```` fences and skips fences with no `{`
+- `baton end` now prints a warning if auto-sync fails after writing `BATON.md`, instead of silently exiting 0
+
+**Improvements**
+- 34 new tests covering `BatonConfig`, `baton end` error paths, LLM provider edge cases, and adapter safety — 184 tests total
+- Renamed PyPI package from `baton-cli` (name was taken) to `baton-pass`
+
+### 0.1.0 — 2026-06-04
+
+Initial release.
+
+- `baton init` — scaffold `BATON.md`, `.baton.toml`, pre-commit hook
+- `baton sync` — push context to Claude Code, Cursor, Copilot, Codex, Gemini
+- `baton status` — detect drift between `BATON.md` and agent files
+- `baton score` — grade `BATON.md` completeness out of 100
+- `baton end` — summarise a coding session into `BATON.md` via LLM (Anthropic, OpenAI, Vertex)
 
 ---
 
