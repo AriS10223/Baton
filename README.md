@@ -10,13 +10,17 @@
 **Baton** is an open-source CLI that solves context-loss when switching between AI coding tools. It keeps a single `BATON.md` as your project's source of truth and syncs it into every agent's native config file — so Claude Code, Cursor, Copilot, Codex, and Gemini all start with full context, no matter which one you used last.
 
 ```
-BATON.md  ←── one file to rule them all
-    ├── CLAUDE.md                          (Claude Code)
-    ├── AGENTS.md                          (OpenAI Codex / ChatGPT)
-    ├── .cursor/rules/baton.mdc            (Cursor)
-    ├── GEMINI.md                          (Gemini CLI)
-    └── .github/copilot-instructions.md   (GitHub Copilot)
+BATON.md  ←── one source of truth (the only file you edit)
+    │
+    └── baton sync generates:
+        ├── CLAUDE.md                          (Claude Code)
+        ├── AGENTS.md                          (OpenAI Codex / ChatGPT)
+        ├── .cursor/rules/baton.mdc            (Cursor)
+        ├── GEMINI.md                          (Gemini CLI)
+        └── .github/copilot-instructions.md   (GitHub Copilot)
 ```
+
+The generated files are **not source files** — add them to `.gitignore`. They are recreated on demand by `baton sync` from `BATON.md`.
 
 ---
 
@@ -77,7 +81,18 @@ baton end
 
 ### `baton sync` — deterministic, no LLM
 
-Baton never overwrites your existing agent files. It only updates a managed region between HTML comment markers, leaving all your hand-written content untouched:
+`baton sync` generates `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursor/rules/baton.mdc`, and `.github/copilot-instructions.md` from `BATON.md`. These are **output files, not source files** — commit only `BATON.md` and gitignore the rest:
+
+```gitignore
+# .gitignore
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+.cursor/rules/baton.mdc
+.github/copilot-instructions.md
+```
+
+Baton never overwrites your existing agent files wholesale. It only updates a managed region between HTML comment markers, leaving all your hand-written content untouched:
 
 ```
 <!-- BATON:START — auto-generated, do not edit by hand -->
