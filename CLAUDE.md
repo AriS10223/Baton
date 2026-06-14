@@ -89,7 +89,7 @@ cli.py
 
 **Diff strategy** (`core/gitdiff.py`): `resolve_base_ref` reads the `commit` SHA from the last session entry in BATON.md so each `baton end` diffs from where the previous session ended. Falls back to `git diff HEAD` on first run. Diffs are capped at 24k chars to avoid blowing the LLM token budget.
 
-**Injectable summarizer seam**: `run_end()` accepts a `summarizer` keyword argument (`(system, user, config) -> str`). Tests pass a fake that returns canned JSON — no real LLM call needed. Do not remove or change this signature.
+**Injectable summarizer seam**: `run_end()` accepts two test-only keyword arguments: `summarizer` (`(system, user, config) -> str`) to bypass the real LLM call with a fake that returns canned JSON, and `auto_accept=True` to skip the interactive per-section prompts. Tests use both together. Do not remove or change these signatures.
 
 **Managed-block pattern** (`adapters/base.py`): `sync` never replaces a whole file. It only rewrites the region between `BATON:START` and `BATON:END` HTML comment markers via `upsert_managed_block()`. `status.py` uses `extract_managed_block()` + a fresh `adapter.render()` to detect drift without any LLM or git calls.
 
@@ -177,7 +177,7 @@ Python CLI tool with a plugin-style adapter system. BATON.md is the single sourc
 - adapters/registry.py: detect_enabled + get_adapters *(confidence: stable)*
 - commands/sync.py + commands/status.py + commands/score.py + commands/init.py *(confidence: stable)*
 - cli.py wiring all four commands + stub for baton end *(confidence: stable)*
-- Full test suite: 107 tests passing *(confidence: stable)*
+- Full test suite: 314 tests passing *(confidence: stable)*
 - README.md, CONTRIBUTING.md, BATON.md dogfood, CLAUDE.md lessons log *(confidence: stable)*
 - git init + pre-commit hook installed *(confidence: stable)*
 
