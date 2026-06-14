@@ -69,6 +69,7 @@ baton end
 | `baton status` | Show which files are in-sync, drifted, or missing |
 | `baton score` | Score your `BATON.md` completeness out of 100 (no LLM — structural only) |
 | `baton end` | Summarise the session into `BATON.md` via your configured LLM |
+| `baton doctor` | Diagnose your setup — checks BATON.md, config, adapters, agent files, and API keys |
 
 ---
 
@@ -85,6 +86,42 @@ Baton never overwrites your existing agent files. It only updates a managed regi
 ```
 
 `baton status` detects drift between `BATON.md` and your agent files without any LLM call.
+
+### `baton doctor` — setup diagnostics
+
+If something isn't working, run `baton doctor`. It checks five things in order and prints a `PASS / WARN / FAIL` line for each, with an inline fix command on every failure:
+
+```
+baton doctor -- diagnosing your setup
+
+── BATON.md ──────────────────────────────────
+  PASS  BATON.md found
+  PASS  Valid YAML block parsed
+
+── Config (.baton.toml) ──────────────────────
+  PASS  .baton.toml found
+  llm_provider = anthropic
+  min_diff_lines = 10
+
+── Adapters ──────────────────────────────────
+  PASS  3 adapter(s) enabled (auto-detected from repo root)
+  PASS    claude     -> CLAUDE.md
+  PASS    cursor     -> .cursor/rules/baton.mdc
+  PASS    copilot    -> .github/copilot-instructions.md
+
+── Agent files (dry-run sync) ────────────────
+  PASS  claude     CLAUDE.md               in-sync
+  WARN  cursor     .cursor/rules/baton.mdc  drifted
+        Fix: baton sync
+
+── API keys ──────────────────────────────────
+  FAIL  ANTHROPIC_API_KEY    not set  (active provider)
+        Fix: export ANTHROPIC_API_KEY=sk-ant-...
+  WARN  OPENAI_API_KEY       not set
+  WARN  GOOGLE_APPLICATION_CREDENTIALS  not set
+```
+
+`baton doctor` always exits 0 — it never blocks your workflow, it just tells you what to fix.
 
 ### `baton end` — LLM-powered session capture
 
@@ -222,6 +259,16 @@ MIT — see [LICENSE](LICENSE).
 ---
 
 ## Changelog
+
+### 0.1.2 — 2026-06-13
+
+**New**
+- `baton doctor` — single command that diagnoses your entire Baton setup: checks for a valid `BATON.md`, active config values, detected adapters, per-file sync status (dry-run), and all three provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`). Prints `PASS / WARN / FAIL` per check with inline fix commands. Always exits 0.
+
+**Tests**
+- 130 new tests across three files: `test_cli.py` (45 — CLI flag routing and exit codes), `test_summarizer.py` (43 — `build_prompt` output shape, fallbacks, section ordering), `test_extended.py` (42 — `parse_delta` edge cases, `_merge_delta` missing-key paths, `run_end` force/threshold/error paths, `gitdiff` edge cases, `BatonConfig` malformed TOML) — **314 tests total**
+
+---
 
 ### 0.1.1 — 2026-06-05
 
