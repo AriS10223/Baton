@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "baton-pass"
-version = "0.1.1"
+version = "0.1.2"
 description = "One living onboarding doc. Every agent. Every teammate. Always in sync."
 readme = "README.md"
 license = { text = "MIT" }
