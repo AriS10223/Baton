@@ -5,7 +5,7 @@
 [![PyPI](https://img.shields.io/pypi/v/baton-pass)](https://pypi.org/project/baton-pass/)
 [![Python](https://img.shields.io/pypi/pyversions/baton-pass)](https://pypi.org/project/baton-pass/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-184%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-314%20passing-brightgreen)](#)
 
 **Baton** is an open-source CLI that solves context-loss when switching between AI coding tools. It keeps a single `BATON.md` as your project's source of truth and syncs it into every agent's native config file — so Claude Code, Cursor, Copilot, Codex, and Gemini all start with full context, no matter which one you used last.
 
@@ -233,6 +233,7 @@ MIT — see [LICENSE](LICENSE).
 
 **Improvements**
 - 34 new tests covering `BatonConfig`, `baton end` error paths, LLM provider edge cases, and adapter safety — 184 tests total
+- 130 additional tests for CLI routing, summarizer prompt-building, and extended edge cases (parse_delta, merge_delta, gitdiff, BatonConfig) — **314 tests total**
 - Renamed PyPI package from `baton-cli` (name was taken) to `baton-pass`
 
 ### 0.1.0 — 2026-06-04
