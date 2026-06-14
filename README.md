@@ -2,7 +2,7 @@
 
 > Stop re-explaining your project to every AI. One file, every agent, always in sync.
 
-[![PyPI](https://img.shields.io/pypi/v/baton-pass)](https://pypi.org/project/baton-pass/)
+[![PyPI](https://img.shields.io/badge/PyPI-v0.1.2-blue)](https://pypi.org/project/baton-pass/0.1.2/)
 [![Python](https://img.shields.io/pypi/pyversions/baton-pass)](https://pypi.org/project/baton-pass/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-314%20passing-brightgreen)](#)
