@@ -17,7 +17,7 @@ Python 3.10+ required. `tomllib` is stdlib on 3.11+; `tomli` is the conditional 
 ## Running tests
 
 ```bash
-pytest tests/                         # full suite
+pytest tests/                         # full suite (314 tests)
 pytest tests/test_adapters.py -v      # single file
 pytest tests/ -k "test_upsert"        # by name pattern
 ```
@@ -29,10 +29,11 @@ Tests use `tmp_path` (pytest) for filesystem isolation — no mocking. The share
 After `pip install -e ".[dev]"`, both forms work:
 
 ```bash
-baton score
+baton init --force
 baton sync
 baton status
-baton init --force
+baton score
+baton doctor                             # diagnose setup: BATON.md, config, adapters, files, API keys
 baton end --force --yes                  # --yes skips interactive prompts (good for testing)
 baton end --since <sha-or-branch>        # override the base ref for the diff
 # python -m baton.cli <cmd> works identically
@@ -42,9 +43,9 @@ baton end --since <sha-or-branch>        # override the base ref for the diff
 ```bash
 # Anthropic (default)
 $env:ANTHROPIC_API_KEY = "sk-ant-..."
-# OpenAI  — also: pip install "baton-cli[openai]"
+# OpenAI  — also: pip install "baton-pass[openai]"
 $env:OPENAI_API_KEY = "sk-..."
-# Vertex  — also: pip install "baton-cli[vertex]"
+# Vertex  — also: pip install "baton-pass[vertex]"
 $env:GOOGLE_APPLICATION_CREDENTIALS = "C:\path\to\key.json"
 $env:BATON_VERTEX_PROJECT = "my-gcp-project"
 ```
@@ -95,6 +96,8 @@ cli.py
 
 **Cursor adapter** (`adapters/cursor.py`) overrides `prepare_file()` because `.mdc` files require YAML frontmatter at the top of the file, outside the managed block.
 
+**`baton doctor`** (`commands/doctor.py`): runs five check groups in order — BATON.md validity, `.baton.toml` config, adapter detection, per-file dry-run sync (same `extract_managed_block` + `render` logic as `status`), and all three provider API keys. Prints `PASS / WARN / FAIL` per item with inline fix hints. Always exits 0.
+
 ## Non-obvious invariants
 
 **`re.sub` replacements must use a lambda.** `re.sub(pattern, block, text)` interprets `\n` in a plain string replacement as an actual newline. When the replacement contains YAML-derived data (which may include literal `\n`), this silently corrupts the output. Always write: `re.sub(pattern, lambda _m: block, text)`. This applies to both `upsert_managed_block()` in `adapters/base.py` and `save()` in `core/document.py`.
@@ -113,7 +116,7 @@ Create `baton/adapters/mytool.py`, subclass `BaseAdapter`, implement `render()` 
 
 - **Never use PyYAML** — it drops inline `#` comments on round-trip. `ruamel.yaml` is mandatory.
 - **`schema.py` owns all BATON.md field names.** Don't define section names in `score.py` or anywhere else.
-- **`baton end` is the only LLM command.** `init`, `sync`, `status`, `score` are purely deterministic — no network calls.
+- **`baton end` is the only LLM command.** `init`, `sync`, `status`, `score`, `doctor` are purely deterministic — no network calls.
 - Git commits: identity `AriS10223 <220664302+AriS10223@users.noreply.github.com>`, no Claude attribution.
 
 <!-- BATON:START — auto-generated, do not edit by hand -->
