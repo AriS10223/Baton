@@ -10,6 +10,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
+from .commands.doctor import run_doctor
 from .commands.end import run_end
 from .commands.init import run_init
 from .commands.score import run_score
@@ -68,6 +69,12 @@ def status() -> None:
 def score() -> None:
     """Evaluate [bold]BATON.md[/bold] completeness (no LLM — purely structural)."""
     run_score(_repo_root())
+
+
+@app.command()
+def doctor() -> None:
+    """Diagnose your Baton setup: checks BATON.md, config, adapters, agent files, and API keys."""
+    run_doctor(_repo_root())
 
 
 # ── baton end ─────────────────────────────────────────────────────────────────
