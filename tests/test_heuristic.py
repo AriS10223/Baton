@@ -10,6 +10,7 @@ import pytest
 from baton.core.heuristic import (
     _build_highlights,
     _build_summary,
+    _extract_markers,
     _infer_sprint_done,
     _infer_sprint_next,
     _parse_diff_stats,
@@ -280,3 +281,117 @@ def test_heuristic_delta_empty_everything_returns_safe_string() -> None:
     delta = heuristic_delta("", [], {})
     assert delta["session"]["summary"] != ""
     assert "No changes" in delta["session"]["summary"]
+
+
+# ── _extract_markers ──────────────────────────────────────────────────────────
+
+
+def test_extract_markers_decision_from_commit() -> None:
+    result = _extract_markers(["DECISION: use ruamel not PyYAML"], "")
+    assert "decisions" in result
+    assert result["decisions"][0]["what"] == "use ruamel not PyYAML"
+
+
+def test_extract_markers_decision_from_diff_added_line() -> None:
+    diff = "+# DECISION: inline comments must be preserved\n"
+    result = _extract_markers([], diff)
+    assert "decisions" in result
+    assert result["decisions"][0]["what"] == "inline comments must be preserved"
+
+
+def test_extract_markers_anti_from_commit() -> None:
+    result = _extract_markers(["ANTI: PyYAML for YAML parsing"], "")
+    assert "anti_decisions" in result
+    assert result["anti_decisions"][0]["rejected"] == "PyYAML for YAML parsing"
+
+
+def test_extract_markers_rejected_alias() -> None:
+    result = _extract_markers(["REJECTED: full-file sync"], "")
+    assert "anti_decisions" in result
+    assert result["anti_decisions"][0]["rejected"] == "full-file sync"
+
+
+def test_extract_markers_landmine_from_commit() -> None:
+    result = _extract_markers(["LANDMINE: the re.sub in upsert_managed_block must use a lambda"], "")
+    assert "landmines" in result
+    lm = result["landmines"][0]
+    assert "upsert_managed_block" in lm["actually"]
+    assert lm["location"] == ""   # left blank for human review
+    assert lm["looks_like"] == ""
+
+
+def test_extract_markers_question_from_commit() -> None:
+    result = _extract_markers(["QUESTION: should baton init auto-sync?"], "")
+    assert "open_questions" in result
+    assert result["open_questions"][0]["question"] == "should baton init auto-sync?"
+    assert result["open_questions"][0]["status"] == "open"
+
+
+def test_extract_markers_openq_alias() -> None:
+    result = _extract_markers(["OPENQ: what token limit triggers baton end?"], "")
+    assert "open_questions" in result
+
+
+def test_extract_markers_case_insensitive() -> None:
+    result = _extract_markers(["decision: lower case works"], "")
+    assert "decisions" in result
+
+
+def test_extract_markers_deduplicates() -> None:
+    commits = ["DECISION: use ruamel", "DECISION: use ruamel"]
+    result = _extract_markers(commits, "")
+    assert len(result["decisions"]) == 1
+
+
+def test_extract_markers_diff_ignored_lines() -> None:
+    """Only added (+) lines in the diff are scanned, not removed or context lines."""
+    diff = "-DECISION: old removed decision\n DECISION: context line\n"
+    result = _extract_markers([], diff)
+    assert "decisions" not in result
+
+
+def test_extract_markers_empty_input_returns_empty_dict() -> None:
+    result = _extract_markers([], "")
+    assert result == {}
+
+
+def test_extract_markers_multiple_types_in_one_call() -> None:
+    commits = [
+        "DECISION: use managed blocks",
+        "ANTI: full file overwrite",
+        "LANDMINE: the lambda in re.sub is intentional",
+        "QUESTION: should we auto-sync after end?",
+    ]
+    result = _extract_markers(commits, "")
+    assert "decisions" in result
+    assert "anti_decisions" in result
+    assert "landmines" in result
+    assert "open_questions" in result
+
+
+# ── heuristic_delta with markers ─────────────────────────────────────────────
+
+
+def test_heuristic_delta_with_decision_marker_includes_decisions() -> None:
+    commits = ["DECISION: adopt managed-block pattern for all adapters"]
+    delta = heuristic_delta("", commits, {})
+    assert "decisions" in delta
+    assert delta["decisions"][0]["what"] == "adopt managed-block pattern for all adapters"
+
+
+def test_heuristic_delta_with_landmine_marker() -> None:
+    diff = "+# LANDMINE: this empty return is intentional -- see OAuth callback docs\n"
+    delta = heuristic_delta(diff, [], {})
+    assert "landmines" in delta
+    assert "intentional" in delta["landmines"][0]["actually"]
+
+
+def test_heuristic_delta_no_markers_still_absent() -> None:
+    """Invariant unchanged: ordinary diff lines never produce curated sections."""
+    diff = "+x = 1  # this looks like a decision\n"
+    commits = ["add important architectural change"]
+    delta = heuristic_delta(diff, commits, {})
+    assert "decisions" not in delta
+    assert "anti_decisions" not in delta
+    assert "landmines" not in delta
+    assert "open_questions" not in delta

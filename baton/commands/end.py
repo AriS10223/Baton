@@ -266,7 +266,7 @@ def _review(delta: dict, auto_accept: bool) -> dict | None:
             console.print(f"  * {h}")
 
     # -- Sprint done
-    sprint_done = delta["sprint_done"]
+    sprint_done = delta.get("sprint_done") or []
     console.print()
     if sprint_done:
         console.print("[bold]Sprint items proposed as DONE:[/bold]")
@@ -276,13 +276,44 @@ def _review(delta: dict, auto_accept: bool) -> dict | None:
         console.print("[dim]No sprint items proposed as done.[/dim]")
 
     # -- Sprint next
-    sprint_next = delta["sprint_next"]
+    sprint_next = delta.get("sprint_next") or []
     if sprint_next:
         console.print()
         console.print("[bold]Sprint items proposed as NEXT:[/bold]")
         for item in sprint_next:
             pri = item.get("priority", "medium")
             console.print(f"  [cyan]+[/cyan] [{pri}] {item['feature']}")
+
+    # -- Curated sections (shown only when present)
+    decisions     = delta.get("decisions")     or []
+    anti_decisions = delta.get("anti_decisions") or []
+    landmines     = delta.get("landmines")     or []
+    open_questions = delta.get("open_questions") or []
+
+    if decisions:
+        console.print()
+        console.print("[bold]Decisions proposed:[/bold]")
+        for d in decisions:
+            console.print(f"  [yellow]+[/yellow] {d.get('what', '')}")
+
+    if anti_decisions:
+        console.print()
+        console.print("[bold]Anti-decisions proposed:[/bold]")
+        for a in anti_decisions:
+            console.print(f"  [yellow]+[/yellow] REJECTED: {a.get('rejected', '')}")
+
+    if landmines:
+        console.print()
+        console.print("[bold]Landmines proposed:[/bold]")
+        for lm in landmines:
+            loc = f" (in {lm['location']})" if lm.get("location") else ""
+            console.print(f"  [yellow]+[/yellow]{loc} {lm.get('actually', '')}")
+
+    if open_questions:
+        console.print()
+        console.print("[bold]Open questions proposed:[/bold]")
+        for q in open_questions:
+            console.print(f"  [yellow]+[/yellow] {q.get('question', '')}")
 
     console.print()
 
@@ -301,6 +332,18 @@ def _review(delta: dict, auto_accept: bool) -> dict | None:
         keep_next = False
         if sprint_next:
             keep_next = typer.confirm("Accept sprint-next additions?", default=True)
+        keep_decisions = False
+        if decisions:
+            keep_decisions = typer.confirm("Accept proposed decisions?", default=True)
+        keep_anti = False
+        if anti_decisions:
+            keep_anti = typer.confirm("Accept proposed anti-decisions?", default=True)
+        keep_landmines = False
+        if landmines:
+            keep_landmines = typer.confirm("Accept proposed landmines?", default=True)
+        keep_questions = False
+        if open_questions:
+            keep_questions = typer.confirm("Accept proposed open questions?", default=True)
         proceed = typer.confirm("Write to BATON.md?", default=True)
     except typer.Abort:
         return None
@@ -309,9 +352,13 @@ def _review(delta: dict, auto_accept: bool) -> dict | None:
         return None
 
     return {
-        "session": delta["session"] if keep_session else None,
-        "sprint_done": delta["sprint_done"] if keep_done else [],
-        "sprint_next": delta["sprint_next"] if keep_next else [],
+        "session":        delta["session"] if keep_session else None,
+        "sprint_done":    sprint_done if keep_done else [],
+        "sprint_next":    sprint_next if keep_next else [],
+        "decisions":      decisions if keep_decisions else [],
+        "anti_decisions": anti_decisions if keep_anti else [],
+        "landmines":      landmines if keep_landmines else [],
+        "open_questions": open_questions if keep_questions else [],
     }
 
 
@@ -326,6 +373,30 @@ def _append_sprint_items(seq, new_items: list, make_entry) -> None:
         if label not in existing:
             seq.append(make_entry(item))
             existing.add(label)
+
+
+def _next_id(seq, prefix: str) -> str:
+    """Compute the next zero-padded ID for *seq* entries with an ``id`` field.
+
+    Scans existing entries for IDs matching ``<prefix><digits>`` (e.g. ``d001``),
+    tolerates gaps and malformed values, and returns the next sequential ID.
+    Always zero-padded to at least 3 digits.
+
+    Examples:
+        [] -> "d001"
+        [{"id": "d001"}] -> "d002"
+        [{"id": "d001"}, {"id": "d003"}] -> "d004"   (gap-tolerant)
+    """
+    import re as _re
+    pattern = _re.compile(r"^" + _re.escape(prefix) + r"(\d+)$", _re.IGNORECASE)
+    max_n = 0
+    for entry in seq:
+        if isinstance(entry, dict):
+            raw = str(entry.get("id") or "")
+            m = pattern.match(raw)
+            if m:
+                max_n = max(max_n, int(m.group(1)))
+    return f"{prefix}{max_n + 1:03d}"
 
 
 def _merge_delta(
@@ -370,6 +441,95 @@ def _merge_delta(
                     "priority": item.get("priority", "medium") if isinstance(item, dict) else "medium",
                 },
             )
+
+    # ── Decisions ─────────────────────────────────────────────────
+    new_decisions = accepted.get("decisions") or []
+    if new_decisions:
+        decisions_list = data.get("decisions")
+        if decisions_list is not None:
+            existing_whats = {
+                str(e.get("what") or "") for e in decisions_list if isinstance(e, dict)
+            }
+            for d in new_decisions:
+                what = str(d.get("what") or "")
+                if what and what not in existing_whats:
+                    new_id = _next_id(decisions_list, "d")
+                    decisions_list.append({
+                        "id":      new_id,
+                        "what":    what,
+                        "why":     str(d.get("why") or ""),
+                        "made":    today,
+                        "made_in": str(d.get("made_in") or tool or ""),
+                    })
+                    existing_whats.add(what)
+
+    # ── Anti-decisions ────────────────────────────────────────────
+    new_anti = accepted.get("anti_decisions") or []
+    if new_anti:
+        anti_list = data.get("anti_decisions")
+        if anti_list is not None:
+            existing_rejected = {
+                str(e.get("rejected") or "") for e in anti_list if isinstance(e, dict)
+            }
+            for a in new_anti:
+                rejected = str(a.get("rejected") or "")
+                if rejected and rejected not in existing_rejected:
+                    new_id = _next_id(anti_list, "a")
+                    anti_list.append({
+                        "id":         new_id,
+                        "rejected":   rejected,
+                        "why":        str(a.get("why") or ""),
+                        "ruled_out":  today,
+                    })
+                    existing_rejected.add(rejected)
+
+    # ── Landmines ─────────────────────────────────────────────────
+    new_landmines = accepted.get("landmines") or []
+    if new_landmines:
+        landmines_list = data.get("landmines")
+        if landmines_list is not None:
+            existing_locations = {
+                str(e.get("location") or "") for e in landmines_list if isinstance(e, dict)
+            }
+            existing_actuallys = {
+                str(e.get("actually") or "") for e in landmines_list if isinstance(e, dict)
+            }
+            for lm in new_landmines:
+                location = str(lm.get("location") or "")
+                actually = str(lm.get("actually") or "")
+                # Dedup by location (if non-empty) or by the actually text.
+                dedup_key = location if location else actually
+                if dedup_key and (
+                    location not in existing_locations or not location
+                ) and actually not in existing_actuallys:
+                    landmines_list.append({
+                        "location":   location,
+                        "looks_like": str(lm.get("looks_like") or ""),
+                        "actually":   actually,
+                    })
+                    if location:
+                        existing_locations.add(location)
+                    existing_actuallys.add(actually)
+
+    # ── Open questions ────────────────────────────────────────────
+    new_questions = accepted.get("open_questions") or []
+    if new_questions:
+        questions_list = data.get("open_questions")
+        if questions_list is not None:
+            existing_questions = {
+                str(e.get("question") or "") for e in questions_list if isinstance(e, dict)
+            }
+            for q in new_questions:
+                question = str(q.get("question") or "")
+                if question and question not in existing_questions:
+                    new_id = _next_id(questions_list, "q")
+                    questions_list.append({
+                        "id":       new_id,
+                        "question": question,
+                        "context":  str(q.get("context") or ""),
+                        "status":   str(q.get("status") or "open"),
+                    })
+                    existing_questions.add(question)
 
     # ── Session log ───────────────────────────────────────────────
     session_payload = accepted.get("session")

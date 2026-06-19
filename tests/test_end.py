@@ -14,7 +14,7 @@ import pytest
 
 import json
 
-from baton.commands.end import _delta_from_stdin, _merge_delta, run_end
+from baton.commands.end import _delta_from_stdin, _merge_delta, _next_id, run_end
 from baton.core.document import BatonDocument
 from baton.core.summarizer import JSON_SPEC, parse_delta
 
@@ -705,3 +705,297 @@ def test_delta_from_stdin_malformed_returns_heuristic(tmp_path: Path) -> None:
         repo_root=tmp_path, doc_data={},
     )
     assert isinstance(delta["session"]["summary"], str)
+
+
+# ── parse_delta: curated sections ─────────────────────────────────────────────
+
+
+def test_parse_delta_curated_sections_present() -> None:
+    raw = json.dumps({
+        "session": {"summary": "added decision", "highlights": []},
+        "sprint_done": [],
+        "sprint_next": [],
+        "decisions": [{"what": "use managed blocks", "why": "safety", "made_in": "claude-code"}],
+        "anti_decisions": [{"rejected": "full overwrite", "why": "destructive"}],
+        "landmines": [{"location": "base.py", "looks_like": "bug", "actually": "intentional"}],
+        "open_questions": [{"question": "auto-sync by default?", "context": "TBD", "status": "open"}],
+    })
+    result = parse_delta(raw)
+    assert "decisions" in result
+    assert result["decisions"][0]["what"] == "use managed blocks"
+    assert "anti_decisions" in result
+    assert result["anti_decisions"][0]["rejected"] == "full overwrite"
+    assert "landmines" in result
+    assert result["landmines"][0]["actually"] == "intentional"
+    assert "open_questions" in result
+    assert result["open_questions"][0]["question"] == "auto-sync by default?"
+    assert result["open_questions"][0]["status"] == "open"
+
+
+def test_parse_delta_curated_sections_absent_when_empty() -> None:
+    raw = json.dumps({
+        "session": {"summary": "x", "highlights": []},
+        "sprint_done": [],
+        "sprint_next": [],
+        "decisions": [],
+        "anti_decisions": [],
+        "landmines": [],
+        "open_questions": [],
+    })
+    result = parse_delta(raw)
+    # Empty lists → sections absent (no point carrying empty)
+    assert "decisions" not in result
+    assert "anti_decisions" not in result
+    assert "landmines" not in result
+    assert "open_questions" not in result
+
+
+def test_parse_delta_curated_sections_absent_when_missing() -> None:
+    raw = json.dumps({"session": {"summary": "x", "highlights": []}, "sprint_done": [], "sprint_next": []})
+    result = parse_delta(raw)
+    assert "decisions" not in result
+    assert "anti_decisions" not in result
+    assert "landmines" not in result
+    assert "open_questions" not in result
+
+
+def test_parse_delta_curated_string_entries_coerced() -> None:
+    """String entries in curated lists are coerced gracefully."""
+    raw = json.dumps({
+        "session": {"summary": "x", "highlights": []},
+        "sprint_done": [], "sprint_next": [],
+        "decisions": ["just a plain string decision"],
+    })
+    result = parse_delta(raw)
+    assert "decisions" in result
+    assert result["decisions"][0]["what"] == "just a plain string decision"
+    assert result["decisions"][0]["why"] == ""
+
+
+# ── _next_id ──────────────────────────────────────────────────────────────────
+
+
+def test_next_id_empty_list() -> None:
+    assert _next_id([], "d") == "d001"
+
+
+def test_next_id_single_entry() -> None:
+    assert _next_id([{"id": "d001"}], "d") == "d002"
+
+
+def test_next_id_gap_tolerant() -> None:
+    # Gap: d001, d003 -- next should be d004, not d002.
+    seq = [{"id": "d001"}, {"id": "d003"}]
+    assert _next_id(seq, "d") == "d004"
+
+
+def test_next_id_malformed_ids_skipped() -> None:
+    seq = [{"id": "d001"}, {"id": "not-valid"}, {"id": ""}]
+    assert _next_id(seq, "d") == "d002"
+
+
+def test_next_id_zero_padded_three_digits() -> None:
+    result = _next_id([], "q")
+    assert result == "q001"
+    assert len(result) == 4  # "q" + 3 digits
+
+
+def test_next_id_different_prefix() -> None:
+    assert _next_id([{"id": "a001"}, {"id": "a002"}], "a") == "a003"
+
+
+# ── _merge_delta: curated sections ───────────────────────────────────────────
+
+
+def test_merge_delta_adds_decision(loaded_doc: BatonDocument) -> None:
+    accepted = {
+        "sprint_done": [], "sprint_next": [], "session": None,
+        "decisions": [{"what": "use SQLite in dev", "why": "simpler", "made_in": "test"}],
+        "anti_decisions": [], "landmines": [], "open_questions": [],
+    }
+    _merge_delta(loaded_doc.data, accepted, sha=None, tool="test", today="2026-06-10")
+    decisions = list(loaded_doc.data["decisions"])
+    whats = [d["what"] for d in decisions if isinstance(d, dict)]
+    # "Using SQLite for local dev, Postgres in prod" is the fixture entry (d001).
+    # "use SQLite in dev" is new -- different text.
+    assert "use SQLite in dev" in whats
+
+
+def test_merge_delta_decision_id_assigned(loaded_doc: BatonDocument) -> None:
+    accepted = {
+        "sprint_done": [], "sprint_next": [], "session": None,
+        "decisions": [{"what": "brand new decision", "why": "", "made_in": ""}],
+        "anti_decisions": [], "landmines": [], "open_questions": [],
+    }
+    _merge_delta(loaded_doc.data, accepted, sha=None, tool="test", today="2026-06-10")
+    decisions = list(loaded_doc.data["decisions"])
+    new_entry = next((d for d in decisions if isinstance(d, dict) and d.get("what") == "brand new decision"), None)
+    assert new_entry is not None
+    assert new_entry["id"] == "d002"  # fixture has d001 already
+
+
+def test_merge_delta_deduplicates_decision_by_what(loaded_doc: BatonDocument) -> None:
+    # Fixture has d001: "Using SQLite for local dev, Postgres in prod"
+    existing_what = "Using SQLite for local dev, Postgres in prod"
+    original_count = len(list(loaded_doc.data["decisions"]))
+    accepted = {
+        "sprint_done": [], "sprint_next": [], "session": None,
+        "decisions": [{"what": existing_what, "why": "duplicate", "made_in": ""}],
+        "anti_decisions": [], "landmines": [], "open_questions": [],
+    }
+    _merge_delta(loaded_doc.data, accepted, sha=None, tool="", today="2026-06-10")
+    assert len(list(loaded_doc.data["decisions"])) == original_count  # no new entry
+
+
+def test_merge_delta_adds_anti_decision(loaded_doc: BatonDocument) -> None:
+    accepted = {
+        "sprint_done": [], "sprint_next": [], "session": None,
+        "decisions": [],
+        "anti_decisions": [{"rejected": "global state", "why": "hard to test"}],
+        "landmines": [], "open_questions": [],
+    }
+    _merge_delta(loaded_doc.data, accepted, sha=None, tool="", today="2026-06-10")
+    anti = list(loaded_doc.data["anti_decisions"])
+    rejected_vals = [a.get("rejected") for a in anti if isinstance(a, dict)]
+    assert "global state" in rejected_vals
+
+
+def test_merge_delta_anti_decision_gets_next_id(loaded_doc: BatonDocument) -> None:
+    # Fixture has a001 already.
+    accepted = {
+        "sprint_done": [], "sprint_next": [], "session": None,
+        "decisions": [],
+        "anti_decisions": [{"rejected": "new rejected approach", "why": ""}],
+        "landmines": [], "open_questions": [],
+    }
+    _merge_delta(loaded_doc.data, accepted, sha=None, tool="", today="2026-06-10")
+    anti = list(loaded_doc.data["anti_decisions"])
+    new_entry = next((a for a in anti if isinstance(a, dict) and a.get("rejected") == "new rejected approach"), None)
+    assert new_entry is not None
+    assert new_entry["id"] == "a002"
+
+
+def test_merge_delta_adds_landmine(loaded_doc: BatonDocument) -> None:
+    accepted = {
+        "sprint_done": [], "sprint_next": [], "session": None,
+        "decisions": [], "anti_decisions": [],
+        "landmines": [{"location": "core/doc.py", "looks_like": "missing return", "actually": "intentional EOF"}],
+        "open_questions": [],
+    }
+    _merge_delta(loaded_doc.data, accepted, sha=None, tool="", today="2026-06-10")
+    lms = list(loaded_doc.data["landmines"])
+    actuallys = [lm.get("actually") for lm in lms if isinstance(lm, dict)]
+    assert "intentional EOF" in actuallys
+
+
+def test_merge_delta_adds_open_question(loaded_doc: BatonDocument) -> None:
+    accepted = {
+        "sprint_done": [], "sprint_next": [], "session": None,
+        "decisions": [], "anti_decisions": [], "landmines": [],
+        "open_questions": [{"question": "auto-sync after end?", "context": "", "status": "open"}],
+    }
+    _merge_delta(loaded_doc.data, accepted, sha=None, tool="", today="2026-06-10")
+    qs = list(loaded_doc.data["open_questions"])
+    questions = [q.get("question") for q in qs if isinstance(q, dict)]
+    assert "auto-sync after end?" in questions
+
+
+def test_merge_delta_open_question_gets_next_id(loaded_doc: BatonDocument) -> None:
+    # Fixture has q001 already.
+    accepted = {
+        "sprint_done": [], "sprint_next": [], "session": None,
+        "decisions": [], "anti_decisions": [], "landmines": [],
+        "open_questions": [{"question": "brand new question?", "context": "", "status": "open"}],
+    }
+    _merge_delta(loaded_doc.data, accepted, sha=None, tool="", today="2026-06-10")
+    qs = list(loaded_doc.data["open_questions"])
+    new_q = next((q for q in qs if isinstance(q, dict) and q.get("question") == "brand new question?"), None)
+    assert new_q is not None
+    assert new_q["id"] == "q002"
+
+
+def test_merge_delta_deduplicates_open_question(loaded_doc: BatonDocument) -> None:
+    existing_q = "Should filters be multi-select or single-select?"
+    original_count = len(list(loaded_doc.data["open_questions"]))
+    accepted = {
+        "sprint_done": [], "sprint_next": [], "session": None,
+        "decisions": [], "anti_decisions": [], "landmines": [],
+        "open_questions": [{"question": existing_q, "context": "", "status": "open"}],
+    }
+    _merge_delta(loaded_doc.data, accepted, sha=None, tool="", today="2026-06-10")
+    assert len(list(loaded_doc.data["open_questions"])) == original_count
+
+
+def test_merge_delta_heuristic_missing_curated_keys_is_safe(loaded_doc: BatonDocument) -> None:
+    """A delta from the heuristic (no markers) must merge cleanly even though
+    decisions/anti/landmines/open_questions keys are absent."""
+    heuristic_only = {
+        "session": {"summary": "Heuristic summary", "highlights": []},
+        "sprint_done": [],
+        "sprint_next": [],
+        # curated keys intentionally absent
+    }
+    original_d = len(list(loaded_doc.data["decisions"]))
+    original_a = len(list(loaded_doc.data["anti_decisions"]))
+    original_lm = len(list(loaded_doc.data["landmines"]))
+    original_q = len(list(loaded_doc.data["open_questions"]))
+
+    _merge_delta(loaded_doc.data, heuristic_only, sha=None, tool="", today="2026-06-10")
+
+    # Nothing changed in curated sections.
+    assert len(list(loaded_doc.data["decisions"])) == original_d
+    assert len(list(loaded_doc.data["anti_decisions"])) == original_a
+    assert len(list(loaded_doc.data["landmines"])) == original_lm
+    assert len(list(loaded_doc.data["open_questions"])) == original_q
+    # Session was appended.
+    assert len(list(loaded_doc.data["sessions"])) == 1
+
+
+def test_review_does_not_drop_curated_sections(tmp_path: Path) -> None:
+    """Full pipeline: a delta with all four curated sections, auto_accept=True,
+    must write all of them -- the _review return dict must not filter them out."""
+    git(["init"], tmp_path)
+    git(["config", "user.email", "test@test.com"], tmp_path)
+    git(["config", "user.name", "Test"], tmp_path)
+
+    baton_path = tmp_path / "BATON.md"
+    baton_path.write_bytes(SAMPLE_BATON.read_bytes())
+    make_commit(tmp_path, "BATON.md", baton_path.read_text(encoding="utf-8"))
+    (tmp_path / "work.py").write_text("\n".join(f"x{i} = {i}" for i in range(20)))
+    git(["add", "work.py"], tmp_path)
+    git(["commit", "-m", "implement work module"], tmp_path)
+
+    full_delta = json.dumps({
+        "session": {"summary": "Did curated work", "highlights": []},
+        "sprint_done": [], "sprint_next": [],
+        "decisions": [{"what": "managed blocks for safety", "why": "prevents overwrite", "made_in": "test"}],
+        "anti_decisions": [{"rejected": "full-file sync", "why": "destructive"}],
+        "landmines": [{"location": "base.py", "looks_like": "duplicate", "actually": "intentional lambda"}],
+        "open_questions": [{"question": "should we auto-sync?", "context": "", "status": "open"}],
+    })
+
+    result = run_end(
+        tmp_path,
+        mode="apply",
+        stdin_reader=lambda: full_delta,
+        auto_accept=True,
+        force=True,
+    )
+    assert result is True
+
+    doc = BatonDocument.load(baton_path)
+    decisions = list(doc.data["decisions"])
+    whats = [d.get("what") for d in decisions if isinstance(d, dict)]
+    assert "managed blocks for safety" in whats
+
+    anti = list(doc.data["anti_decisions"])
+    rejected_vals = [a.get("rejected") for a in anti if isinstance(a, dict)]
+    assert "full-file sync" in rejected_vals
+
+    lms = list(doc.data["landmines"])
+    actuallys = [lm.get("actually") for lm in lms if isinstance(lm, dict)]
+    assert "intentional lambda" in actuallys
+
+    qs = list(doc.data["open_questions"])
+    questions = [q.get("question") for q in qs if isinstance(q, dict)]
+    assert "should we auto-sync?" in questions

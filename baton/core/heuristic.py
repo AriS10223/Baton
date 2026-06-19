@@ -6,19 +6,32 @@ without making any model call.  Used as the default for bare ``baton end`` and
 as the automatic fallback when ``--apply`` receives empty or malformed JSON.
 
 High-fidelity sections (decisions, anti-decisions, landmines, open-questions)
-MUST NEVER be inferred from diff content -- curation is a human/agent concern.
-They will be populated via explicit inline markers in a future commit.
-For now they are intentionally absent from the returned delta dict.
+MUST NEVER be inferred from ordinary diff content -- curation is a human/agent
+concern.  They are populated ONLY from explicit inline markers:
 
-Marker convention (reserved for future use, case-insensitive):
-  DECISION:         ...  ->  decisions
-  ANTI: / REJECTED: ...  ->  anti_decisions
-  LANDMINE:         ...  ->  landmines
-  QUESTION: / OPENQ: ... ->  open_questions
+  In commit-message subjects or added diff lines (+), case-insensitive:
+
+    DECISION:  <text>   ->  decisions  (what field)
+    ANTI:      <text>   ->  anti_decisions  (rejected field)
+    REJECTED:  <text>   ->  anti_decisions  (rejected field)
+    LANDMINE:  <text>   ->  landmines  (actually field; location/looks_like blank)
+    QUESTION:  <text>   ->  open_questions  (question field, status: open)
+    OPENQ:     <text>   ->  open_questions  (question field, status: open)
+
+If NO markers are found the curated sections are absent from the returned dict.
+This preserves the invariant: no curated memory from inference alone.
 """
 from __future__ import annotations
 
 import re
+
+# ── Marker regexes (case-insensitive; match at the start of meaningful text) ──
+# These extract curated-memory entries from commit subjects or added diff lines.
+
+_MARKER_DECISION  = re.compile(r"(?i)DECISION\s*:\s*(.+)")
+_MARKER_ANTI      = re.compile(r"(?i)(?:ANTI|REJECTED)\s*:\s*(.+)")
+_MARKER_LANDMINE  = re.compile(r"(?i)LANDMINE\s*:\s*(.+)")
+_MARKER_QUESTION  = re.compile(r"(?i)(?:QUESTION|OPENQ)\s*:\s*(.+)")
 
 # ── Commit-subject keywords that suggest "work was completed" ─────────────────
 
@@ -46,25 +59,30 @@ def heuristic_delta(
         commit_log:  List of commit-message subjects since the last session.
         doc_data:    The loaded BATON.md data dict (for future context use).
 
-    Note: decisions / anti_decisions / landmines / open_questions are
-    intentionally absent.  They must never be inferred from diff content.
+    Curated sections (decisions / anti_decisions / landmines / open_questions)
+    are included ONLY when explicit markers are found in commit subjects or
+    added diff lines.  They are NEVER inferred from ordinary diff content.
     """
     insertions, deletions, files_changed = _parse_diff_stats(diff_text)
-    summary   = _build_summary(commit_log, insertions, deletions, files_changed)
+    summary    = _build_summary(commit_log, insertions, deletions, files_changed)
     highlights = _build_highlights(commit_log, insertions, deletions)
     sprint_done = _infer_sprint_done(commit_log)
     sprint_next = _infer_sprint_next(diff_text)
 
-    return {
+    delta: dict = {
         "session": {
             "summary":    summary,
             "highlights": highlights,
         },
         "sprint_done": sprint_done,
         "sprint_next": sprint_next,
-        # decisions / anti_decisions / landmines / open_questions come in Commit B
-        # via explicit inline markers.  Never add them here via inference.
     }
+
+    # ── Curated sections from explicit markers only ───────────────────────────
+    curated = _extract_markers(commit_log, diff_text)
+    delta.update(curated)  # keys absent when no markers found -- intentional
+
+    return delta
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
@@ -162,3 +180,77 @@ def _infer_sprint_next(diff_text: str) -> list[dict]:
                 seen.add(text)
 
     return items
+
+
+def _extract_markers(commit_log: list[str], diff_text: str) -> dict:
+    """Scan commit subjects and added diff lines for curated-memory markers.
+
+    Returns a dict containing only the sections that had at least one match.
+    Absent keys mean "no markers found" -- callers must not infer curated
+    memory from their absence.
+
+    Deduplicates by the primary text field (what / rejected / actually / question).
+    """
+    decisions:     list[dict] = []
+    anti_decisions: list[dict] = []
+    landmines:     list[dict] = []
+    open_questions: list[dict] = []
+
+    seen_decisions:  set[str] = set()
+    seen_anti:       set[str] = set()
+    seen_landmines:  set[str] = set()
+    seen_questions:  set[str] = set()
+
+    # Sources: commit subjects + added (+) lines from the diff.
+    sources: list[str] = list(commit_log)
+    for line in diff_text.splitlines():
+        if line.startswith("+") and not line.startswith("+++"):
+            sources.append(line[1:])  # strip leading +
+
+    for text in sources:
+        text = text.strip()
+        if not text:
+            continue
+
+        m = _MARKER_DECISION.search(text)
+        if m:
+            val = m.group(1).strip()
+            if val and val not in seen_decisions:
+                decisions.append({"what": val, "why": "", "made_in": ""})
+                seen_decisions.add(val)
+            continue
+
+        m = _MARKER_ANTI.search(text)
+        if m:
+            val = m.group(1).strip()
+            if val and val not in seen_anti:
+                anti_decisions.append({"rejected": val, "why": ""})
+                seen_anti.add(val)
+            continue
+
+        m = _MARKER_LANDMINE.search(text)
+        if m:
+            val = m.group(1).strip()
+            if val and val not in seen_landmines:
+                landmines.append({"location": "", "looks_like": "", "actually": val})
+                seen_landmines.add(val)
+            continue
+
+        m = _MARKER_QUESTION.search(text)
+        if m:
+            val = m.group(1).strip()
+            if val and val not in seen_questions:
+                open_questions.append({"question": val, "context": "", "status": "open"})
+                seen_questions.add(val)
+            continue
+
+    result: dict = {}
+    if decisions:
+        result["decisions"] = decisions
+    if anti_decisions:
+        result["anti_decisions"] = anti_decisions
+    if landmines:
+        result["landmines"] = landmines
+    if open_questions:
+        result["open_questions"] = open_questions
+    return result

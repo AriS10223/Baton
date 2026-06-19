@@ -1,7 +1,7 @@
 """
 cli.py — Baton CLI entry point.
 
-Registers all five commands: init / sync / status / score / end.
+Registers all commands: init / sync / status / score / end / doctor / install-skill.
 """
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from rich.console import Console
 from .commands.doctor import run_doctor
 from .commands.end import run_end
 from .commands.init import run_init
+from .commands.install_skill import run_install_skill
 from .commands.score import run_score
 from .commands.status import run_status
 from .commands.sync import run_sync
@@ -166,6 +167,29 @@ def end(
     )
     if not ok:
         raise typer.Exit(1)
+
+
+# ── baton install-skill ───────────────────────────────────────────────────────
+
+@app.command("install-skill")
+def install_skill(
+    force: bool = typer.Option(
+        False,
+        "--force", "-f",
+        help="Overwrite the skill file even if it already exists.",
+    ),
+) -> None:
+    """Install the baton-end Claude Code skill into [bold].claude/skills/baton-end/SKILL.md[/bold].
+
+    The skill lets Claude Code automatically capture session context into
+    BATON.md without an API key, by running [bold]baton end --diff-only[/bold] to get the
+    JSON contract and then piping a drafted delta to [bold]baton end --apply[/bold].
+
+    The installed file is a durable project artifact -- commit it to git.
+    Unlike adapter outputs (CLAUDE.md, AGENTS.md, etc.) it is NOT gitignored
+    and is NOT regenerated on every [bold]baton sync[/bold].
+    """
+    run_install_skill(_repo_root(), force=force)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

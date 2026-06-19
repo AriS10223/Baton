@@ -265,3 +265,59 @@ def test_render_with_empty_sessions_does_not_crash(sample_data: dict) -> None:
     sample_data["sessions"] = []
     rendered = render_markdown_context(sample_data)
     assert isinstance(rendered, str)
+
+
+# ── Session-end protocol block ────────────────────────────────────────────────
+
+
+def test_session_end_protocol_absent_for_claude_adapter(sample_data: dict) -> None:
+    """Claude Code adapter must NOT include the session-end protocol block
+    (the real skill covers it -- adding it to CLAUDE.md would be redundant)."""
+    rendered = render_markdown_context(sample_data, tool_name="claude-code")
+    assert "Session-End Protocol" not in rendered
+    assert "baton end --diff-only" not in rendered
+
+
+def test_session_end_protocol_present_for_codex_adapter(sample_data: dict) -> None:
+    rendered = render_markdown_context(sample_data, tool_name="codex")
+    assert "Session-End Protocol" in rendered
+    assert "baton end --diff-only" in rendered
+    assert "baton end --apply" in rendered
+
+
+def test_session_end_protocol_present_for_gemini_adapter(sample_data: dict) -> None:
+    rendered = render_markdown_context(sample_data, tool_name="gemini")
+    assert "Session-End Protocol" in rendered
+
+
+def test_session_end_protocol_present_for_cursor_adapter(sample_data: dict) -> None:
+    rendered = render_markdown_context(sample_data, tool_name="cursor")
+    assert "Session-End Protocol" in rendered
+
+
+def test_session_end_protocol_present_for_copilot_adapter(sample_data: dict) -> None:
+    rendered = render_markdown_context(sample_data, tool_name="copilot")
+    assert "Session-End Protocol" in rendered
+
+
+def test_session_end_protocol_absent_when_no_tool_name(sample_data: dict) -> None:
+    """Empty tool_name (used for generic rendering) -- no protocol block."""
+    rendered = render_markdown_context(sample_data, tool_name="")
+    assert "Session-End Protocol" not in rendered
+
+
+def test_codex_adapter_render_includes_protocol(sample_data: dict) -> None:
+    from baton.adapters.codex import CodexAdapter
+    result = CodexAdapter().render(sample_data)
+    assert "Session-End Protocol" in result
+
+
+def test_claude_adapter_render_excludes_protocol(sample_data: dict) -> None:
+    from baton.adapters.claude import ClaudeAdapter
+    result = ClaudeAdapter().render(sample_data)
+    assert "Session-End Protocol" not in result
+
+
+def test_cursor_adapter_render_includes_protocol(sample_data: dict) -> None:
+    result = CursorAdapter().render(sample_data)
+    assert "Session-End Protocol" in result

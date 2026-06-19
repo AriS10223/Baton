@@ -37,15 +37,35 @@ Required shape:
   "sprint_next": [
     {"feature": "<what to do next>", "priority": "high|medium|low"},
     "..."
+  ],
+  "decisions": [
+    {"what": "<decision made>", "why": "<rationale>", "made_in": "<tool or context>"},
+    "..."
+  ],
+  "anti_decisions": [
+    {"rejected": "<approach ruled out>", "why": "<why rejected>"},
+    "..."
+  ],
+  "landmines": [
+    {"location": "<file or function>", "looks_like": "<why it seems wrong>", "actually": "<why it is correct>"},
+    "..."
+  ],
+  "open_questions": [
+    {"question": "<unresolved question>", "context": "<background>"},
+    "..."
   ]
 }
 
 Rules:
 - sprint_done: strings naming things clearly finished in this session
 - sprint_next: objects with "feature" (string) and "priority" (high|medium|low)
-- Both lists may be empty ([]) if nothing fits
+- decisions: architectural or design choices made during this session. ONLY include if genuinely decided.
+- anti_decisions: approaches explicitly ruled out. ONLY include if explicitly rejected.
+- landmines: code that looks wrong but is intentional. ONLY include if it appeared in the diff or discussion.
+- open_questions: unresolved questions that should not be decided unilaterally. ONLY include if genuinely unresolved.
+- All curated lists (decisions/anti_decisions/landmines/open_questions) may be empty ([]) -- prefer empty over guessing.
 - session.highlights: 1-3 short strings on the most significant changes
-- Do NOT invent features not visible in the diff
+- Do NOT invent entries not visible in the diff or conversation context
 """
 
 SYSTEM_INSTRUCTIONS = (
@@ -157,7 +177,7 @@ def parse_delta(raw: str) -> dict:
 
     # Coerce to the expected shape with safe defaults.
     session_raw = data.get("session") or {}
-    return {
+    result: dict = {
         "session": {
             "summary": str(session_raw.get("summary") or ""),
             "highlights": [str(h) for h in (session_raw.get("highlights") or [])],
@@ -179,3 +199,51 @@ def parse_delta(raw: str) -> dict:
             for x in (data.get("sprint_next") or [])
         ],
     }
+
+    # ── Curated sections (optional; empty list when absent/null) ──────────────
+    # Coerce each entry field-by-field; tolerate string entries gracefully.
+
+    raw_decisions = data.get("decisions") or []
+    if raw_decisions:
+        result["decisions"] = [
+            {
+                "what":     str((x.get("what")     or x) if isinstance(x, dict) else x),
+                "why":      str(x.get("why")      or "") if isinstance(x, dict) else "",
+                "made_in":  str(x.get("made_in")  or "") if isinstance(x, dict) else "",
+            }
+            for x in raw_decisions
+        ]
+
+    raw_anti = data.get("anti_decisions") or []
+    if raw_anti:
+        result["anti_decisions"] = [
+            {
+                "rejected": str((x.get("rejected") or x) if isinstance(x, dict) else x),
+                "why":      str(x.get("why")       or "") if isinstance(x, dict) else "",
+            }
+            for x in raw_anti
+        ]
+
+    raw_landmines = data.get("landmines") or []
+    if raw_landmines:
+        result["landmines"] = [
+            {
+                "location":   str(x.get("location")   or "") if isinstance(x, dict) else "",
+                "looks_like": str(x.get("looks_like") or "") if isinstance(x, dict) else "",
+                "actually":   str((x.get("actually")  or x) if isinstance(x, dict) else x),
+            }
+            for x in raw_landmines
+        ]
+
+    raw_questions = data.get("open_questions") or []
+    if raw_questions:
+        result["open_questions"] = [
+            {
+                "question": str((x.get("question") or x) if isinstance(x, dict) else x),
+                "context":  str(x.get("context")  or "") if isinstance(x, dict) else "",
+                "status":   str(x.get("status")   or "open") if isinstance(x, dict) else "open",
+            }
+            for x in raw_questions
+        ]
+
+    return result

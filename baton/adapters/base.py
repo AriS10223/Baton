@@ -311,6 +311,38 @@ def render_markdown_context(data: dict, tool_name: str = "") -> str:
                 lines.append(f"- {meta} -- {summary}")
         lines.append("")
 
+    # ── Session-end protocol (non-Claude agents only) ─────────────
+    # Claude Code has a dedicated skill (.claude/skills/baton-end/SKILL.md)
+    # that covers this protocol; injecting it here would be redundant.
+    # All other agents (Codex, Gemini, Cursor, Copilot) receive these
+    # instructions via this managed block since they lack native skill support.
+    if tool_name and tool_name != "claude-code":
+        lines.append("## Session-End Protocol")
+        lines.append("")
+        lines.append(
+            "When wrapping up a session, switching AI tools, or running low on context, "
+            "capture session memory into BATON.md using one of these methods:"
+        )
+        lines.append("")
+        lines.append("**Preferred (zero API cost, highest fidelity):**")
+        lines.append("")
+        lines.append("1. Run `baton end --diff-only` to see the current git diff, project context,")
+        lines.append("   and the exact JSON schema Baton expects.")
+        lines.append("2. Draft a JSON delta matching that schema, incorporating decisions,")
+        lines.append("   anti-decisions, landmines, and open questions from this session.")
+        lines.append("3. Run `baton end --apply` and pipe your JSON to it:")
+        lines.append("   `echo '<your JSON>' | baton end --apply`")
+        lines.append("   or write to a temp file and: `baton end --apply < delta.json`")
+        lines.append("")
+        lines.append("**Fallback (zero cost, structural only):**")
+        lines.append("")
+        lines.append("Run bare `baton end` -- derives a summary from git stats alone. No API key needed.")
+        lines.append("")
+        lines.append("**API-backed summary (opt-in, requires key):**")
+        lines.append("")
+        lines.append("Run `baton end --api` with `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`) set.")
+        lines.append("")
+
     return "\n".join(lines)
 
 
