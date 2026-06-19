@@ -4,7 +4,7 @@
 
 > Stop re-explaining your project to every AI. One file, every agent, always in sync.
 
-[![PyPI](https://img.shields.io/badge/PyPI-v0.1.4-blue)](https://pypi.org/project/baton-pass/0.1.4/)
+[![PyPI](https://img.shields.io/badge/PyPI-v0.1.3.1-blue)](https://pypi.org/project/baton-pass/0.1.4/)
 [![Python](https://img.shields.io/pypi/pyversions/baton-pass)](https://pypi.org/project/baton-pass/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-422%20passing-brightgreen)](#)
@@ -301,7 +301,7 @@ MIT — see [LICENSE](LICENSE).
 
 ## Changelog
 
-### 0.1.4 — 2026-06-19
+### 0.1.3.1 — 2026-06-19
 
 **Full-memory session capture**
 
