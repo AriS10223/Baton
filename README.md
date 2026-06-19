@@ -81,6 +81,7 @@ That's it. No API key for `baton end` — the default summarizer is free and run
 | `baton status` | Show which files are in-sync, drifted, or missing |
 | `baton score` | Grade your `BATON.md` memory quality out of 100 — are decisions documented? laws set? landmines marked? |
 | `baton end` | Capture the session into `BATON.md` — free by default, LLM optional |
+| `baton install-skill` | Install the Claude Code skill so Claude auto-captures sessions without an API key |
 | `baton doctor` | Diagnose your setup: BATON.md validity, adapters, agent files, API keys |
 
 ---
@@ -148,6 +149,16 @@ echo '<delta json>' | baton end --apply
 ```
 
 If the agent produces nothing usable, `--apply` falls back to the heuristic automatically.
+
+**Claude Code skill:** run `baton install-skill` once to write `.claude/skills/baton-end/SKILL.md` into your project. After that, Claude Code automatically runs the `--diff-only → --apply` loop when you say "wrap up", "ending session", or "switching tools" — no extra commands needed. Commit the skill file to git so your whole team gets it.
+
+```bash
+baton install-skill
+git add .claude/skills/baton-end/SKILL.md
+git commit -m "add baton-end skill for Claude Code"
+```
+
+**Codex, Gemini, Cursor, Copilot:** `baton sync` injects a Session-End Protocol block into each agent's managed config file, describing the same `--diff-only → --apply` workflow as plain instructions.
 
 ### `baton doctor` — setup diagnostics
 
@@ -262,8 +273,10 @@ Your project memory belongs in your repo. `BATON.md` is a plain Markdown file yo
 |-|-|
 | `baton init` / `sync` / `status` / `score` / `doctor` | Done |
 | `baton end` — heuristic (free default) + stdin apply + LLM opt-in | Done |
-| Host-agent skills (Claude Code, Codex, Gemini, Cursor) | In progress |
-| Commit B: marker-driven decision / landmine capture (`DECISION:` / `LANDMINE:` inline) | Planned |
+| Full-memory delta — decisions, anti-decisions, landmines, open questions captured by `baton end` | Done |
+| Inline markers — `DECISION:` / `ANTI:` / `LANDMINE:` / `QUESTION:` in commits + diffs | Done |
+| `baton install-skill` — Claude Code skill for automatic zero-cost session capture | Done |
+| Session-end protocol injected into Codex / Gemini / Cursor / Copilot via `baton sync` | Done |
 | Team sync — shared BATON.md, PR-time updates | Planned |
 | GitHub Actions integration | Planned |
 | MCP server — expose BATON.md to any MCP-compatible agent | Planned |
@@ -290,14 +303,46 @@ MIT — see [LICENSE](LICENSE).
 
 ### 0.1.4 — 2026-06-19
 
-**New**
-- `baton end` now captures **decisions, anti-decisions, landmines, and open questions** — not just session + sprint. The full memory schema is the delta contract for all three modes (heuristic, `--apply`, `--api`).
-- `baton end` heuristic mode supports inline markers in commit subjects and added diff lines: `DECISION:`, `ANTI:`/`REJECTED:`, `LANDMINE:`, `QUESTION:`/`OPENQ:`. Curated sections are proposed only when markers are found; never inferred from ordinary code.
-- `baton install-skill` — new command that writes `.claude/skills/baton-end/SKILL.md` into your project. Claude Code then automatically captures session context (including curated memory) without an API key. The skill body defers to `baton end --diff-only` for the live JSON schema, so it never goes stale.
-- Session-end protocol block injected into `AGENTS.md`, `GEMINI.md`, `.cursor/rules/baton.mdc`, and `.github/copilot-instructions.md` by `baton sync` — teaches Codex, Gemini, Cursor, and Copilot the `--diff-only` → draft → `--apply` workflow. Excluded from `CLAUDE.md` since the real skill covers it.
+**Full-memory session capture**
 
-**Tests**
-- 58 new tests: `test_heuristic.py` additions (marker extraction, heuristic_delta with markers), `test_end.py` additions (curated sections in parse_delta, _next_id, _merge_delta for all four sections, _review silent-drop guard, full round-trip), `test_adapters.py` additions (protocol block present/absent per tool), `test_install_skill.py` (22 tests) — **422 tests total**
+`baton end` now captures the full curated memory of a session — not just what changed, but what was decided, what was ruled out, what is intentionally weird, and what is still unresolved:
+
+- **Decisions** — architectural choices made in this session
+- **Anti-decisions** — approaches explicitly rejected (stops agents re-suggesting them)
+- **Landmines** — code that looks wrong but is intentional (stops agents "fixing" it)
+- **Open questions** — unresolved questions the human must decide (stops agents making unilateral calls)
+
+All three modes (`baton end`, `baton end --apply`, `baton end --api`) now propose entries for these sections. The review UI shows them per-section so you can accept or reject each one independently before anything is written.
+
+**Inline markers for the free heuristic**
+
+In your commit messages or diff comments, prefix a line with one of these markers and the heuristic picks it up automatically — no API key, no model:
+
+```
+DECISION:  use managed blocks for all adapter writes
+ANTI:      full-file sync -- destructive for hand-written content
+LANDMINE:  the lambda in re.sub is intentional, not a bug
+QUESTION:  should baton init auto-run baton sync?
+```
+
+Markers can also use `REJECTED:` (alias for `ANTI:`), `OPENQ:` (alias for `QUESTION:`). Curated sections only appear when markers are found — nothing is inferred from ordinary code changes.
+
+**`baton install-skill` — Claude Code automatic session capture**
+
+```bash
+baton install-skill
+git add .claude/skills/baton-end/SKILL.md
+```
+
+Installs a Claude Code skill at `.claude/skills/baton-end/SKILL.md`. After that, Claude automatically runs the `--diff-only → --apply` loop when you wrap up a session — capturing decisions, landmines, and open questions from the conversation, not just from the diff. No API key needed; uses Claude's own session quota.
+
+The skill body is thin and schema-free: it instructs Claude to run `baton end --diff-only` to get the live contract, then pipe a drafted JSON to `baton end --apply`. When the schema changes in a future release, the installed skill auto-updates — no need to re-run `install-skill`.
+
+**Session-end protocol in non-Claude agent files**
+
+`baton sync` now injects a brief Session-End Protocol section into `AGENTS.md`, `GEMINI.md`, `.cursor/rules/baton.mdc`, and `.github/copilot-instructions.md`, describing the same `--diff-only → --apply` workflow as plain instructions for Codex, Gemini, Cursor, and Copilot. Not injected into `CLAUDE.md` — the real skill covers it.
+
+**Tests: 422 passing** (58 new — marker extraction, ID assignment, curated-section round-trip, install-skill, protocol block presence/absence per adapter)
 
 ---
 
