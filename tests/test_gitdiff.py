@@ -15,6 +15,7 @@ from baton.core.gitdiff import (
     MAX_DIFF_CHARS,
     _TRUNCATION_MARKER,
     count_changed_lines,
+    get_commit_log,
     get_diff,
     head_sha,
     resolve_base_ref,
@@ -186,3 +187,50 @@ def test_get_diff_empty_returns_string(repo: Path) -> None:
     make_commit(repo, "readme.txt", "hello\n")
     diff = get_diff(repo, None)
     assert isinstance(diff, str)
+
+
+# ── get_commit_log ────────────────────────────────────────────────────────────
+
+
+def test_get_commit_log_returns_subjects(repo: Path) -> None:
+    make_commit(repo, "a.txt", "a\n", "add alpha")
+    make_commit(repo, "b.txt", "b\n", "add beta")
+    log = get_commit_log(repo, None)
+    assert "add alpha" in log
+    assert "add beta" in log
+
+
+def test_get_commit_log_most_recent_first(repo: Path) -> None:
+    make_commit(repo, "a.txt", "a\n", "first commit")
+    make_commit(repo, "b.txt", "b\n", "second commit")
+    log = get_commit_log(repo, None)
+    assert log[0] == "second commit"
+    assert log[1] == "first commit"
+
+
+def test_get_commit_log_since_base_ref(repo: Path) -> None:
+    sha_a = make_commit(repo, "a.txt", "a\n", "before base")
+    make_commit(repo, "b.txt", "b\n", "after base")
+    log = get_commit_log(repo, sha_a)
+    assert "after base" in log
+    assert "before base" not in log
+
+
+def test_get_commit_log_empty_repo_returns_list(repo: Path) -> None:
+    """No commits yet -- should return [] without raising."""
+    log = get_commit_log(repo, None)
+    assert log == []
+
+
+def test_get_commit_log_bad_base_ref_returns_empty(repo: Path) -> None:
+    """An unknown base ref should return [] without raising."""
+    make_commit(repo, "a.txt", "a\n", "a commit")
+    log = get_commit_log(repo, "nonexistent-sha-deadbeef")
+    assert log == []
+
+
+def test_get_commit_log_respects_max_entries(repo: Path) -> None:
+    for i in range(5):
+        make_commit(repo, f"f{i}.txt", f"{i}\n", f"commit {i}")
+    log = get_commit_log(repo, None, max_entries=3)
+    assert len(log) == 3

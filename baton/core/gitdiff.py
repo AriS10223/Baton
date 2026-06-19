@@ -101,3 +101,31 @@ def count_changed_lines(diff: str) -> int:
         if line.startswith("+") or line.startswith("-"):
             count += 1
     return count
+
+
+def get_commit_log(
+    repo_root: Path,
+    base_ref: str | None,
+    max_entries: int = 20,
+) -> list[str]:
+    """Return commit-message subjects since *base_ref* (or the last *max_entries*).
+
+    Returns an empty list (never raises) if git is unavailable, the repo has
+    no commits, or *base_ref* is unknown -- the heuristic summarizer degrades
+    gracefully when the log is empty.
+    """
+    if base_ref:
+        args = [
+            "git", "log",
+            f"{base_ref}..HEAD",
+            "--format=%s",
+            f"--max-count={max_entries}",
+        ]
+    else:
+        args = ["git", "log", "-n", str(max_entries), "--format=%s"]
+
+    try:
+        out = _run(args, repo_root)
+        return [line.strip() for line in out.splitlines() if line.strip()]
+    except GitError:
+        return []

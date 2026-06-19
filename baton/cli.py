@@ -102,22 +102,67 @@ def end(
         "-y",
         help="Accept all proposed changes without interactive prompts.",
     ),
+    diff_only: bool = typer.Option(
+        False,
+        "--diff-only",
+        help=(
+            "Print the git diff + JSON contract for a host agent to use, then exit. "
+            "No writes. Designed for use with agent skills: pipe the output to the "
+            "agent, have it draft the JSON, then run `baton end --apply`."
+        ),
+    ),
+    apply: bool = typer.Option(
+        False,
+        "--apply",
+        help=(
+            "Read a pre-drafted session delta JSON from stdin and apply it. "
+            "Falls back to the heuristic summarizer if stdin is empty or invalid."
+        ),
+    ),
+    api: bool = typer.Option(
+        False,
+        "--api",
+        help=(
+            "Use the configured LLM provider to summarise the session. "
+            "Requires ANTHROPIC_API_KEY (or OPENAI_API_KEY / "
+            "GOOGLE_APPLICATION_CREDENTIALS for other providers)."
+        ),
+    ),
 ) -> None:
-    """Summarise the current session into [bold]BATON.md[/bold] via LLM.
+    """Capture the current session into [bold]BATON.md[/bold].
 
-    Reads the git diff since the last ``baton end`` run, asks your configured
-    LLM to propose sprint-done / sprint-next / session-log updates, lets you
-    review them, then writes them back to BATON.md and re-syncs agent files.
+    Default (no flags): zero-cost heuristic summary from git diff + commit log.
+    No API key required.
 
-    Requires the ANTHROPIC_API_KEY environment variable (or OPENAI_API_KEY /
-    GOOGLE_APPLICATION_CREDENTIALS depending on llm_provider in .baton.toml).
+    Three-tier chain (cheapest first):
+      [default]    Heuristic -- diff stats + commit subjects, no model needed.
+      [bold]--apply[/bold]     Read a pre-drafted delta JSON from stdin (from a host agent skill).
+      [bold]--api[/bold]       Call the configured LLM provider for a richer summary.
+      [bold]--diff-only[/bold] Print context + JSON contract for a host agent; no writes.
     """
+    flags = [diff_only, apply, api]
+    if sum(flags) > 1:
+        console.print(
+            "[red]Error:[/red] --diff-only, --apply, and --api are mutually exclusive."
+        )
+        raise typer.Exit(1)
+
+    if diff_only:
+        mode = "diff-only"
+    elif apply:
+        mode = "apply"
+    elif api:
+        mode = "api"
+    else:
+        mode = "heuristic"
+
     ok = run_end(
         _repo_root(),
         force=force,
         since=since,
         tool=tool,
         auto_accept=yes,
+        mode=mode,
     )
     if not ok:
         raise typer.Exit(1)

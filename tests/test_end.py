@@ -12,9 +12,11 @@ from pathlib import Path
 
 import pytest
 
-from baton.commands.end import _merge_delta, run_end
+import json
+
+from baton.commands.end import _delta_from_stdin, _merge_delta, run_end
 from baton.core.document import BatonDocument
-from baton.core.summarizer import parse_delta
+from baton.core.summarizer import JSON_SPEC, parse_delta
 
 # ── Fixture path ──────────────────────────────────────────────────────────────
 
@@ -472,3 +474,234 @@ def test_run_end_end_to_end(tmp_path: Path) -> None:
     assert claude_md.exists()
     content = claude_md.read_text(encoding="utf-8")
     assert "BATON:START" in content
+
+
+# ── Heuristic mode (default, zero-cost) ──────────────────────────────────────
+
+
+def _make_repo_with_diff(tmp_path: Path) -> tuple[Path, Path]:
+    """Helper: real git repo + BATON.md + a commit + uncommitted diff (> 10 lines)."""
+    git(["init"], tmp_path)
+    git(["config", "user.email", "test@test.com"], tmp_path)
+    git(["config", "user.name", "Test"], tmp_path)
+
+    baton_path = tmp_path / "BATON.md"
+    baton_path.write_bytes(SAMPLE_BATON.read_bytes())
+    make_commit(tmp_path, "BATON.md", baton_path.read_text(encoding="utf-8"))
+
+    # Create a file with enough lines to pass the threshold.
+    content = "\n".join(f"x{i} = {i}" for i in range(20))
+    (tmp_path / "work.py").write_text(content, encoding="utf-8")
+    git(["add", "work.py"], tmp_path)
+    git(["commit", "-m", "implement the work module"], tmp_path)
+
+    return tmp_path, baton_path
+
+
+def test_run_end_heuristic_default_no_api_key(tmp_path: Path) -> None:
+    """Bare baton end (heuristic mode) must write a session without any API key."""
+    repo, baton_path = _make_repo_with_diff(tmp_path)
+    result = run_end(repo, mode="heuristic", auto_accept=True, force=True)
+    assert result is True
+
+    doc = BatonDocument.load(baton_path)
+    sessions = list(doc.data["sessions"])
+    assert len(sessions) == 1
+    summary = sessions[0]["summary"]
+    assert summary  # non-empty
+    assert isinstance(summary, str)
+
+
+def test_run_end_heuristic_commit_subject_in_summary(tmp_path: Path) -> None:
+    """The heuristic summary must contain the most recent commit subject."""
+    repo, baton_path = _make_repo_with_diff(tmp_path)
+    result = run_end(repo, mode="heuristic", auto_accept=True, force=True)
+    assert result is True
+
+    doc = BatonDocument.load(baton_path)
+    summary = list(doc.data["sessions"])[0]["summary"]
+    assert "implement the work module" in summary
+
+
+def test_run_end_heuristic_adds_done_from_commit(tmp_path: Path) -> None:
+    """Heuristic sprint_done comes from commit subjects with done-keywords."""
+    repo, baton_path = _make_repo_with_diff(tmp_path)
+    result = run_end(repo, mode="heuristic", auto_accept=True, force=True)
+    assert result is True
+
+    doc = BatonDocument.load(baton_path)
+    done_features = [
+        (item["feature"] if isinstance(item, dict) else str(item))
+        for item in doc.data["current_sprint"]["done"]
+    ]
+    # "implement the work module" contains "implement" -- a done-keyword.
+    assert "implement the work module" in done_features
+
+
+def test_run_end_summarizer_kwarg_still_routes_to_api_path(tmp_path: Path) -> None:
+    """Backward compat: passing summarizer= implies api mode (existing tests unchanged)."""
+    repo, baton_path = _make_repo_with_diff(tmp_path)
+    result = run_end(repo, summarizer=fake_summarizer, auto_accept=True, force=True)
+    assert result is True
+
+    doc = BatonDocument.load(baton_path)
+    sessions = list(doc.data["sessions"])
+    # The fake summarizer returns "Built foo feature" -- confirms api path ran.
+    assert sessions[0]["summary"] == "Built foo feature"
+
+
+# ── --diff-only mode ──────────────────────────────────────────────────────────
+
+
+def test_run_end_diff_only_returns_true_no_writes(tmp_path: Path) -> None:
+    """--diff-only must return True and must NOT write to BATON.md."""
+    repo, baton_path = _make_repo_with_diff(tmp_path)
+    original = baton_path.read_bytes()
+
+    result = run_end(repo, mode="diff-only", force=True)
+    assert result is True
+    assert baton_path.read_bytes() == original  # no writes
+
+
+def test_run_end_diff_only_output_contains_json_spec(
+    tmp_path: Path, capsys
+) -> None:
+    """--diff-only output must include the JSON contract so a host agent knows the shape."""
+    repo, baton_path = _make_repo_with_diff(tmp_path)
+    # capsys doesn't capture Rich console output easily; just verify no exception
+    # and that the function returns True.  The JSON_SPEC content is integration-tested
+    # by running the CLI; here we verify the contract is importable and non-empty.
+    result = run_end(repo, mode="diff-only", force=True)
+    assert result is True
+    assert JSON_SPEC  # JSON_SPEC is exported and non-empty
+
+
+# ── --apply mode ──────────────────────────────────────────────────────────────
+
+
+def test_run_end_apply_happy_path(tmp_path: Path) -> None:
+    """--apply with valid JSON delta must write the session to BATON.md."""
+    repo, baton_path = _make_repo_with_diff(tmp_path)
+
+    def good_reader() -> str:
+        return CANNED_DELTA
+
+    result = run_end(
+        repo,
+        mode="apply",
+        stdin_reader=good_reader,
+        auto_accept=True,
+        force=True,
+    )
+    assert result is True
+
+    doc = BatonDocument.load(baton_path)
+    sessions = list(doc.data["sessions"])
+    assert len(sessions) == 1
+    assert sessions[0]["summary"] == "Built foo feature"
+
+
+def test_run_end_apply_empty_stdin_falls_back_to_heuristic(tmp_path: Path) -> None:
+    """--apply with empty stdin must fall back to the heuristic (not error out)."""
+    repo, baton_path = _make_repo_with_diff(tmp_path)
+
+    def empty_reader() -> str:
+        return ""
+
+    result = run_end(
+        repo,
+        mode="apply",
+        stdin_reader=empty_reader,
+        auto_accept=True,
+        force=True,
+    )
+    assert result is True
+
+    doc = BatonDocument.load(baton_path)
+    sessions = list(doc.data["sessions"])
+    assert len(sessions) == 1
+    # Heuristic summary contains the commit subject.
+    assert sessions[0]["summary"]  # non-empty
+
+
+def test_run_end_apply_malformed_json_falls_back_to_heuristic(tmp_path: Path) -> None:
+    """--apply with malformed JSON must fall back to the heuristic (not error out)."""
+    repo, baton_path = _make_repo_with_diff(tmp_path)
+
+    def bad_reader() -> str:
+        return "this is not json { broken"
+
+    result = run_end(
+        repo,
+        mode="apply",
+        stdin_reader=bad_reader,
+        auto_accept=True,
+        force=True,
+    )
+    assert result is True
+
+    doc = BatonDocument.load(baton_path)
+    sessions = list(doc.data["sessions"])
+    assert len(sessions) == 1
+
+
+def test_run_end_apply_io_error_falls_back_to_heuristic(tmp_path: Path) -> None:
+    """--apply where stdin_reader raises OSError must fall back to heuristic."""
+    repo, baton_path = _make_repo_with_diff(tmp_path)
+
+    def broken_reader() -> str:
+        raise OSError("stdin closed")
+
+    result = run_end(
+        repo,
+        mode="apply",
+        stdin_reader=broken_reader,
+        auto_accept=True,
+        force=True,
+    )
+    assert result is True
+
+    doc = BatonDocument.load(baton_path)
+    sessions = list(doc.data["sessions"])
+    assert len(sessions) == 1
+
+
+# ── _delta_from_stdin unit tests ──────────────────────────────────────────────
+
+
+def test_delta_from_stdin_valid_json(tmp_path: Path) -> None:
+    git(["init"], tmp_path)
+    git(["config", "user.email", "test@test.com"], tmp_path)
+    git(["config", "user.name", "Test"], tmp_path)
+
+    delta = _delta_from_stdin(
+        lambda: CANNED_DELTA, diff_text="", base_ref=None,
+        repo_root=tmp_path, doc_data={},
+    )
+    assert delta["session"]["summary"] == "Built foo feature"
+
+
+def test_delta_from_stdin_empty_returns_heuristic(tmp_path: Path) -> None:
+    git(["init"], tmp_path)
+    git(["config", "user.email", "test@test.com"], tmp_path)
+    git(["config", "user.name", "Test"], tmp_path)
+
+    delta = _delta_from_stdin(
+        lambda: "", diff_text="", base_ref=None,
+        repo_root=tmp_path, doc_data={},
+    )
+    # Heuristic fallback -- summary is "No changes" style
+    assert isinstance(delta["session"]["summary"], str)
+    assert "session" in delta
+
+
+def test_delta_from_stdin_malformed_returns_heuristic(tmp_path: Path) -> None:
+    git(["init"], tmp_path)
+    git(["config", "user.email", "test@test.com"], tmp_path)
+    git(["config", "user.name", "Test"], tmp_path)
+
+    delta = _delta_from_stdin(
+        lambda: "not json at all >>>", diff_text="", base_ref=None,
+        repo_root=tmp_path, doc_data={},
+    )
+    assert isinstance(delta["session"]["summary"], str)

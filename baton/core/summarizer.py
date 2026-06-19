@@ -21,7 +21,7 @@ from ..core.schema import feature_label
 # This text is identical on every baton end run, so the Anthropic provider
 # marks it with cache_control=ephemeral for cross-run prompt caching.
 
-_JSON_SPEC = """\
+JSON_SPEC = """\
 Respond with ONLY a valid JSON object -- no prose, no markdown fences.
 Required shape:
 
@@ -54,7 +54,7 @@ SYSTEM_INSTRUCTIONS = (
     "Given a project brief and a git diff, produce a short accurate summary of "
     "what was accomplished, which sprint items are now done, and what should come "
     "next. Be concise. Use plain English.\n\n"
-    + _JSON_SPEC
+    + JSON_SPEC
 )
 
 
