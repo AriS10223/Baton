@@ -1,13 +1,13 @@
 # Baton
 
-**5 agent adapters · zero-cost session capture · 364 tests passing**
+**5 agent adapters · zero-cost session capture · 422 tests passing**
 
 > Stop re-explaining your project to every AI. One file, every agent, always in sync.
 
-[![PyPI](https://img.shields.io/badge/PyPI-v0.1.3-blue)](https://pypi.org/project/baton-pass/0.1.3/)
+[![PyPI](https://img.shields.io/badge/PyPI-v0.1.4-blue)](https://pypi.org/project/baton-pass/0.1.4/)
 [![Python](https://img.shields.io/pypi/pyversions/baton-pass)](https://pypi.org/project/baton-pass/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-364%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-422%20passing-brightgreen)](#)
 
 **Baton** keeps structured project memory — your decisions, constraints, session history, and architectural context — alive across tool switches and session ends. Every agent you work with reads the same living document, so it never needs to ask what you already decided.
 
@@ -287,6 +287,19 @@ MIT — see [LICENSE](LICENSE).
 ---
 
 ## Changelog
+
+### 0.1.4 — 2026-06-19
+
+**New**
+- `baton end` now captures **decisions, anti-decisions, landmines, and open questions** — not just session + sprint. The full memory schema is the delta contract for all three modes (heuristic, `--apply`, `--api`).
+- `baton end` heuristic mode supports inline markers in commit subjects and added diff lines: `DECISION:`, `ANTI:`/`REJECTED:`, `LANDMINE:`, `QUESTION:`/`OPENQ:`. Curated sections are proposed only when markers are found; never inferred from ordinary code.
+- `baton install-skill` — new command that writes `.claude/skills/baton-end/SKILL.md` into your project. Claude Code then automatically captures session context (including curated memory) without an API key. The skill body defers to `baton end --diff-only` for the live JSON schema, so it never goes stale.
+- Session-end protocol block injected into `AGENTS.md`, `GEMINI.md`, `.cursor/rules/baton.mdc`, and `.github/copilot-instructions.md` by `baton sync` — teaches Codex, Gemini, Cursor, and Copilot the `--diff-only` → draft → `--apply` workflow. Excluded from `CLAUDE.md` since the real skill covers it.
+
+**Tests**
+- 58 new tests: `test_heuristic.py` additions (marker extraction, heuristic_delta with markers), `test_end.py` additions (curated sections in parse_delta, _next_id, _merge_delta for all four sections, _review silent-drop guard, full round-trip), `test_adapters.py` additions (protocol block present/absent per tool), `test_install_skill.py` (22 tests) — **422 tests total**
+
+---
 
 ### 0.1.3 — 2026-06-19
 
