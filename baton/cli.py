@@ -16,6 +16,8 @@ from .commands.init import run_init
 from .commands.install_skill import run_install_skill
 from .commands.score import run_score
 from .commands.status import run_status
+from .commands.history import run_history
+from .commands.supersede import run_supersede
 from .commands.sync import run_sync
 
 app = typer.Typer(
@@ -190,6 +192,82 @@ def install_skill(
     and is NOT regenerated on every [bold]baton sync[/bold].
     """
     run_install_skill(_repo_root(), force=force)
+
+
+# ── baton check ───────────────────────────────────────────────────────────────
+
+@app.command()
+def check(
+    drift: bool = typer.Option(
+        False,
+        "--drift",
+        help="Check whether the codebase still matches BATON.md claims.",
+    ),
+    since: str | None = typer.Option(None, "--since", help="Override base git ref."),
+    staged: bool = typer.Option(False, "--staged", help="Check staged changes only (git diff --cached)."),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Print JSON output only; no Rich formatting."),
+    fail_on: str = typer.Option("warn", "--fail-on", help="Exit non-zero threshold: warn or block."),
+    acknowledge: str | None = typer.Option(None, "--acknowledge", help="Acknowledge an alert by its id."),
+    reason: str | None = typer.Option(None, "--reason", help="Reason for acknowledging (required with --acknowledge)."),
+) -> None:
+    """Check whether the codebase still matches BATON.md claims (reality drift)."""
+    if not drift:
+        console.print("[drift] Use --drift flag: baton check --drift", markup=False)
+        raise typer.Exit(1)
+    from .commands.check import run_check
+    code = run_check(
+        _repo_root(),
+        since=since,
+        staged=staged,
+        quiet=quiet,
+        fail_on=fail_on,
+        acknowledge=acknowledge,
+        reason=reason,
+    )
+    raise typer.Exit(code)
+
+
+# ── baton supersede ───────────────────────────────────────────────────────────
+
+@app.command()
+def supersede(
+    old_id: str = typer.Argument(..., help="ID of the entry being superseded (e.g. d001, a002)."),
+    with_id: str = typer.Option(..., "--with", help="ID of the new entry that supersedes it."),
+    reason: str = typer.Option("", "--reason", help="Why this entry is superseded (required)."),
+) -> None:
+    """Record that an existing entry has been replaced by a newer one.
+
+    Appends [italic]old_id[/italic] to [italic]with_id[/italic]'s supersedes list in BATON.md.
+    The old entry is NEVER modified.
+    """
+    code = run_supersede(_repo_root(), old_id, with_id, reason)
+    raise typer.Exit(code)
+
+
+# ── baton history ─────────────────────────────────────────────────────────────
+
+@app.command()
+def history(
+    entry_id: str = typer.Argument(..., help="Entry ID to show history for (e.g. d001, a002, l003)."),
+) -> None:
+    """Show the full supersession timeline for a BATON.md entry."""
+    code = run_history(_repo_root(), entry_id)
+    raise typer.Exit(code)
+
+
+# ── baton hooks ───────────────────────────────────────────────────────────────
+
+hooks_app = typer.Typer(name="hooks", help="Manage Baton git hooks.", no_args_is_help=True)
+app.add_typer(hooks_app, name="hooks")
+
+
+@hooks_app.command("install")
+def hooks_install(
+    strict: bool = typer.Option(False, "--strict", help="Also install a blocking pre-commit hook."),
+) -> None:
+    """Install Baton drift-detection git hooks."""
+    from .commands.hooks import run_hooks_install
+    run_hooks_install(_repo_root(), strict=strict)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

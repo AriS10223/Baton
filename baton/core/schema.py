@@ -20,6 +20,27 @@ VALID_STAGES = {"idea", "prototype", "mvp", "production"}
 VALID_TOOLS = {"claude-code", "cursor", "codex", "gemini", "copilot", ""}
 VALID_QUESTION_STATUSES = {"open", "discussed", "resolved"}
 
+# ── Drift detection constants (baton check --drift) ───────────────────────────
+
+EVIDENCE_TYPES    = frozenset({"dependency", "file", "config_key"})
+PATTERN_TYPES     = frozenset({"regex", "import", "dependency"})
+ANTI_SEVERITIES   = frozenset({"warn", "block"})
+DECISION_STATUSES = frozenset({"active", "stale", "contradicted"})
+LANDMINE_STATUSES = frozenset({"open", "touched", "possibly_resolved", "confirmed_resolved"})
+# Maps severity string -> rank integer for --fail-on gating (higher = worse)
+ALERT_SEVERITY_RANK: dict[str, int] = {"warn": 1, "block": 2}
+
+# ── Supersession constants ────────────────────────────────────────────────────
+# The three entry types that support supersession chains.
+# prefix  - id prefix character used for new entries
+# text    - primary human-readable text field (used for overlap detection)
+# date    - date field used to sort appendix bullets (None for landmines)
+SUPERSEDABLE_TYPES: dict[str, dict] = {
+    "decisions":      {"prefix": "d", "text": "what",     "date": "made"},
+    "anti_decisions": {"prefix": "a", "text": "rejected", "date": "ruled_out"},
+    "landmines":      {"prefix": "l", "text": "actually", "date": None},
+}
+
 # Top-level keys expected in the BATON.md YAML block.
 # Used by document.py to warn about unrecognised keys.
 TOP_LEVEL_KEYS = frozenset({

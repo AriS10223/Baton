@@ -69,6 +69,7 @@ def run_end(
     summarizer: SummarizerFn | None = None,
     mode: str = "heuristic",
     stdin_reader: Callable[[], str] | None = None,
+    nudge_accept: bool | None = None,
 ) -> bool:
     """Run baton end.
 
@@ -87,6 +88,9 @@ def run_end(
                       stdin), or 'diff-only' (print context + spec and exit).
         stdin_reader: Callable returning raw stdin text for '--apply' mode.
                       Defaults to sys.stdin.read().  Injectable for tests.
+        nudge_accept: Test-only seam for the supersession nudge. None=interactive,
+                      True=accept all nudge prompts, False=decline all. Ignored when
+                      auto_accept=True (nudge is skipped entirely under --yes).
 
     Returns:
         True on success (or clean skip), False if an error occurred.
@@ -185,6 +189,15 @@ def run_end(
 
     # ── 7. Merge ──────────────────────────────────────────────────
     today = datetime.date.today().isoformat()
+
+    # ── Pre-merge id snapshot (for nudge: detect truly new entries) ──────────
+    from ..core.schema import SUPERSEDABLE_TYPES as _ST
+    _pre_ids: set[str] = set()
+    for _tk in _ST:
+        for _e in (doc.data.get(_tk) or []):
+            if isinstance(_e, dict) and _e.get("id"):
+                _pre_ids.add(str(_e["id"]))
+
     _merge_delta(doc.data, accepted, sha, tool, today)
 
     doc.data["last_updated"] = today
@@ -197,6 +210,45 @@ def run_end(
         console.print(f"[red]Error saving BATON.md:[/red] {exc}")
         return False
     console.print("[green]BATON.md updated.[/green]")
+
+    # ── 7b. Supersession nudge (interactive only) ─────────────────────────────
+    # Runs only when auto_accept is False and the mode was not diff-only.
+    # Finds newly added entries that closely match existing active entries,
+    # offering to record supersession links without re-asking declined pairs.
+    if not auto_accept:
+        _run_supersession_nudge(
+            repo_root,
+            doc.data,
+            accepted,
+            _pre_ids,
+            session_summary=accepted.get("session", {}).get("summary", "") if accepted.get("session") else "",
+            nudge_accept=nudge_accept,
+        )
+
+    # ── 8a. Surface any open drift alerts ─────────────────────────
+    from ..core.alerts import load_alerts
+    _drift = load_alerts(repo_root)
+    _open_alerts = [
+        a for a in (_drift.get("alerts") or [])
+        if a.get("status") in ("violated", "possibly_resolved")
+    ]
+    if _open_alerts:
+        console.print()
+        console.print("[bold]Drift alerts to review:[/bold]")
+        for _a in _open_alerts:
+            _sev = _a.get("severity", "warn")
+            _aid = _a.get("id", "?")
+            _detail = _a.get("detail", "")
+            console.print(f"  [{_sev}] {_aid} -- {_detail}", markup=False)
+        if not auto_accept:
+            import typer as _typer
+            try:
+                _typer.confirm(
+                    "Drift alerts present. Run baton check --drift to review (press Enter to continue)?",
+                    default=True,
+                )
+            except _typer.Abort:
+                pass
 
     # ── 8. Auto-sync ──────────────────────────────────────────────
     if config.auto_sync:
@@ -503,6 +555,7 @@ def _merge_delta(
                     location not in existing_locations or not location
                 ) and actually not in existing_actuallys:
                     landmines_list.append({
+                        "id":         _next_id(landmines_list, "l"),
                         "location":   location,
                         "looks_like": str(lm.get("looks_like") or ""),
                         "actually":   actually,
@@ -545,3 +598,118 @@ def _merge_delta(
                 "commit":     sha or "",
             }
             sessions_list.append(entry)
+
+
+# ── Supersession nudge ────────────────────────────────────────────────────────
+
+
+def _run_supersession_nudge(
+    repo_root: Path,
+    data: dict,
+    accepted: dict,
+    pre_ids: set[str],
+    session_summary: str,
+    nudge_accept: bool | None,
+) -> None:
+    """Offer to link new entries that closely match existing ones.
+
+    Entirely skipped when called -- the caller guarantees it is not invoked
+    under auto_accept=True.  nudge_accept controls test seam behaviour:
+        None  -> interactive (real typer.confirm prompts)
+        True  -> accept all nudge prompts without asking
+        False -> decline all nudge prompts without asking
+    """
+    try:
+        from ..core.supersede import detect_overlaps, SUPERSEDABLE_TYPES
+        from ..core.alerts import load_supersede_declined, save_supersede_declined
+        from ..commands.supersede import run_supersede
+        import datetime as _dt
+    except ImportError:
+        return  # Silently skip if dependencies are unavailable
+
+    # Build the set of newly-assigned ids (appeared in data after merge).
+    new_ids: set[str] = set()
+    for tk in SUPERSEDABLE_TYPES:
+        for e in (data.get(tk) or []):
+            if isinstance(e, dict) and e.get("id") and str(e["id"]) not in pre_ids:
+                new_ids.add(str(e["id"]))
+
+    if not new_ids:
+        return  # Nothing new was merged
+
+    # Build delta from only the newly merged entries (matching by new_id presence).
+    delta: dict = {}
+    for tk in SUPERSEDABLE_TYPES:
+        delta[tk] = [
+            e for e in (data.get(tk) or [])
+            if isinstance(e, dict) and str(e.get("id", "")) in new_ids
+        ]
+
+    overlaps = detect_overlaps(data, delta, new_ids=new_ids)
+    if not overlaps:
+        return
+
+    # Load previously declined pairs (to suppress re-prompting).
+    declined_list = load_supersede_declined(repo_root)
+    declined_pairs: set[tuple[str, str]] = {
+        (str(d.get("old_id", "")), str(d.get("new_id", "")))
+        for d in declined_list
+    }
+
+    newly_declined: list[dict] = []
+    suggested_reason = session_summary.strip() or "superseded by newer entry"
+
+    for overlap in overlaps:
+        old_entry = overlap["existing"]
+        new_entry = overlap["draft"]
+        old_id = str(old_entry.get("id", ""))
+        new_id = str(new_entry.get("id", ""))
+
+        if not old_id or not new_id:
+            continue
+        if (old_id, new_id) in declined_pairs:
+            continue
+
+        # Prompt the user.
+        from ..core.schema import SUPERSEDABLE_TYPES as _ST2
+        tk = overlap["type_key"]
+        text_field = _ST2[tk]["text"]
+        old_text = str(old_entry.get(text_field, ""))
+        new_text = str(new_entry.get(text_field, ""))
+        signal = overlap.get("signal", "similar")
+
+        console.print()
+        console.print(f"[end] Possible supersession ({signal}):", markup=False)
+        console.print(f"  old: [{old_id}] {old_text[:80]}", markup=False)
+        console.print(f"  new: [{new_id}] {new_text[:80]}", markup=False)
+        console.print(f"  suggested reason: \"{suggested_reason}\"", markup=False)
+
+        if nudge_accept is True:
+            do_link = True
+        elif nudge_accept is False:
+            do_link = False
+        else:
+            import typer as _typer
+            try:
+                do_link = _typer.confirm(
+                    f"  Record {old_id} as superseded by {new_id}?",
+                    default=False,
+                )
+            except _typer.Abort:
+                do_link = False
+
+        if do_link:
+            result = run_supersede(repo_root, old_id, new_id, suggested_reason)
+            if result == 0:
+                console.print(f"[end] Linked: {old_id} -> {new_id}", markup=False)
+        else:
+            newly_declined.append({
+                "old_id": old_id,
+                "new_id": new_id,
+                "date": _dt.date.today().isoformat(),
+            })
+            console.print(f"[end] Skipped {old_id} -> {new_id} (remembered).", markup=False)
+
+    if newly_declined:
+        declined_list.extend(newly_declined)
+        save_supersede_declined(repo_root, declined_list)

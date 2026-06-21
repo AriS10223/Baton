@@ -30,10 +30,41 @@ from abc import ABC, abstractmethod
 MARKER_START = "<!-- BATON:START — auto-generated, do not edit by hand -->"
 MARKER_END = "<!-- BATON:END -->"
 
-_BLOCK_RE = re.compile(
-    re.escape(MARKER_START) + r"\n(.*?)\n" + re.escape(MARKER_END),
-    re.DOTALL,
-)
+def upsert_named_block(
+    text: str, inner: str, start_marker: str, end_marker: str
+) -> str:
+    """Insert or replace a delimited block identified by *start_marker* / *end_marker*.
+
+    Generic version of ``upsert_managed_block`` that accepts explicit markers.
+
+    - If the block is already present, replaces only the inner content.
+    - If not present, appends the block (with a blank-line separator when
+      *text* is non-empty).
+
+    ``re.sub`` replacement uses a lambda so that ``\\n`` in YAML-derived data
+    is never misinterpreted as a regex back-reference escape.
+    """
+    block_re = re.compile(
+        re.escape(start_marker) + r"\n(.*?)\n" + re.escape(end_marker),
+        re.DOTALL,
+    )
+    block = f"{start_marker}\n{inner}\n{end_marker}"
+    if block_re.search(text):
+        return block_re.sub(lambda _m: block, text)
+    separator = "\n\n" if text.strip() else ""
+    return text.rstrip("\n") + separator + block + "\n"
+
+
+def extract_named_block(
+    text: str, start_marker: str, end_marker: str
+) -> str | None:
+    """Return the inner content between *start_marker* and *end_marker*, or None."""
+    block_re = re.compile(
+        re.escape(start_marker) + r"\n(.*?)\n" + re.escape(end_marker),
+        re.DOTALL,
+    )
+    m = block_re.search(text)
+    return m.group(1) if m else None
 
 
 def upsert_managed_block(existing_text: str, inner_content: str) -> str:
@@ -45,19 +76,12 @@ def upsert_managed_block(existing_text: str, inner_content: str) -> str:
 
     The outer file content is never touched outside the marker region.
     """
-    block = f"{MARKER_START}\n{inner_content}\n{MARKER_END}"
-    if _BLOCK_RE.search(existing_text):
-        # Use a callable replacement so re.sub does NOT interpret \n, \1, etc.
-        # in the block string as special sequences.
-        return _BLOCK_RE.sub(lambda _m: block, existing_text)
-    separator = "\n\n" if existing_text.strip() else ""
-    return existing_text.rstrip("\n") + separator + block + "\n"
+    return upsert_named_block(existing_text, inner_content, MARKER_START, MARKER_END)
 
 
 def extract_managed_block(text: str) -> str | None:
     """Return the inner content of the Baton-managed block, or None if absent."""
-    m = _BLOCK_RE.search(text)
-    return m.group(1) if m else None
+    return extract_named_block(text, MARKER_START, MARKER_END)
 
 
 # ── Shared markdown renderer ──────────────────────────────────────────────────

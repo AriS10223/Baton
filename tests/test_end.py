@@ -14,8 +14,10 @@ import pytest
 
 import json
 
-from baton.commands.end import _delta_from_stdin, _merge_delta, _next_id, run_end
+from baton.commands.end import _delta_from_stdin, _merge_delta, _next_id, run_end, _run_supersession_nudge
+from baton.core.alerts import load_supersede_declined
 from baton.core.document import BatonDocument
+from baton.core.schema import SUPERSEDABLE_TYPES
 from baton.core.summarizer import JSON_SPEC, parse_delta
 
 # ── Fixture path ──────────────────────────────────────────────────────────────
@@ -888,6 +890,86 @@ def test_merge_delta_adds_landmine(loaded_doc: BatonDocument) -> None:
     assert "intentional EOF" in actuallys
 
 
+def test_merge_delta_landmine_id_assigned_l001(tmp_path: Path) -> None:
+    """A new landmine appended to an empty list gets id 'l001'."""
+    data = {
+        "current_sprint": {"done": [], "next": []},
+        "decisions": [],
+        "anti_decisions": [],
+        "landmines": [],
+        "open_questions": [],
+        "sessions": [],
+    }
+    accepted = {
+        "sprint_done": [], "sprint_next": [], "session": None,
+        "decisions": [], "anti_decisions": [],
+        "landmines": [{"location": "auth/login.py", "looks_like": "unused import", "actually": "needed for side effect"}],
+        "open_questions": [],
+    }
+    _merge_delta(data, accepted, sha=None, tool="", today="2026-06-20")
+    lms = list(data["landmines"])
+    assert len(lms) == 1
+    assert lms[0]["id"] == "l001"
+
+
+def test_merge_delta_landmine_ids_gap_free(tmp_path: Path) -> None:
+    """Two new landmines added sequentially get 'l001' then 'l002'."""
+    data = {
+        "current_sprint": {"done": [], "next": []},
+        "decisions": [],
+        "anti_decisions": [],
+        "landmines": [],
+        "open_questions": [],
+        "sessions": [],
+    }
+    accepted_first = {
+        "sprint_done": [], "sprint_next": [], "session": None,
+        "decisions": [], "anti_decisions": [],
+        "landmines": [{"location": "core/a.py", "looks_like": "dead code", "actually": "intentional stub"}],
+        "open_questions": [],
+    }
+    _merge_delta(data, accepted_first, sha=None, tool="", today="2026-06-20")
+    accepted_second = {
+        "sprint_done": [], "sprint_next": [], "session": None,
+        "decisions": [], "anti_decisions": [],
+        "landmines": [{"location": "core/b.py", "looks_like": "missing return", "actually": "returns None by design"}],
+        "open_questions": [],
+    }
+    _merge_delta(data, accepted_second, sha=None, tool="", today="2026-06-20")
+    lms = list(data["landmines"])
+    assert len(lms) == 2
+    assert lms[0]["id"] == "l001"
+    assert lms[1]["id"] == "l002"
+
+
+def test_merge_delta_landmine_existing_without_id_not_modified(tmp_path: Path) -> None:
+    """Old landmine entries without an 'id' field are untouched (append-only).
+    A new landmine appended when only id-less entries exist gets 'l001'."""
+    data = {
+        "current_sprint": {"done": [], "next": []},
+        "decisions": [],
+        "anti_decisions": [],
+        "landmines": [
+            {"location": "config.py", "looks_like": "duplicate", "actually": "intentional"}
+        ],
+        "open_questions": [],
+        "sessions": [],
+    }
+    accepted = {
+        "sprint_done": [], "sprint_next": [], "session": None,
+        "decisions": [], "anti_decisions": [],
+        "landmines": [{"location": "utils.py", "looks_like": "wrong import", "actually": "lazy loader"}],
+        "open_questions": [],
+    }
+    _merge_delta(data, accepted, sha=None, tool="", today="2026-06-20")
+    lms = list(data["landmines"])
+    assert len(lms) == 2
+    # Old entry: still has no 'id' field
+    assert "id" not in lms[0]
+    # New entry: gets l001 (existing entry had no id, so max_n stays 0)
+    assert lms[1]["id"] == "l001"
+
+
 def test_merge_delta_adds_open_question(loaded_doc: BatonDocument) -> None:
     accepted = {
         "sprint_done": [], "sprint_next": [], "session": None,
@@ -999,3 +1081,252 @@ def test_review_does_not_drop_curated_sections(tmp_path: Path) -> None:
     qs = list(doc.data["open_questions"])
     questions = [q.get("question") for q in qs if isinstance(q, dict)]
     assert "should we auto-sync?" in questions
+
+
+# ── Drift alert surfacing tests ───────────────────────────────────────────────
+
+def test_end_completes_with_drift_alerts_present(tmp_path: Path) -> None:
+    """run_end should complete normally even when drift alerts exist."""
+    from baton.core.alerts import save_alerts
+    repo, baton_path = _make_repo_with_diff(tmp_path)
+    save_alerts(repo, {
+        "generated_at": "2026-06-20T00:00:00Z",
+        "since_sha": "abc",
+        "alerts": [{"id": "a001", "type": "anti_decision", "severity": "warn",
+                    "status": "violated", "file": "x.py", "line": 1, "detail": "test"}],
+    })
+    ok = run_end(
+        repo,
+        force=True,
+        auto_accept=True,
+        summarizer=lambda s, u, c: '{"session": {"summary": "test", "highlights": []}, "sprint_done": [], "sprint_next": []}',
+    )
+    assert ok is True
+
+
+def test_end_completes_without_drift_alerts(tmp_path: Path) -> None:
+    """run_end should complete normally when no drift alerts exist."""
+    repo, baton_path = _make_repo_with_diff(tmp_path)
+    ok = run_end(
+        repo,
+        force=True,
+        auto_accept=True,
+        summarizer=lambda s, u, c: '{"session": {"summary": "test", "highlights": []}, "sprint_done": [], "sprint_next": []}',
+    )
+    assert ok is True
+
+
+def test_end_completes_with_block_severity_alert(tmp_path: Path) -> None:
+    """run_end should complete normally even with block-severity drift alerts."""
+    from baton.core.alerts import save_alerts
+    repo, baton_path = _make_repo_with_diff(tmp_path)
+    save_alerts(repo, {
+        "generated_at": "2026-06-20T00:00:00Z",
+        "since_sha": "abc",
+        "alerts": [
+            {"id": "a001", "type": "anti_decision", "severity": "block",
+             "status": "violated", "file": "src/app.py", "line": 10,
+             "detail": "import of forbidden dep"},
+            {"id": "a002", "type": "landmine", "severity": "warn",
+             "status": "possibly_resolved", "file": "src/db.py", "line": 5,
+             "detail": "possible landmine touched"},
+        ],
+    })
+    ok = run_end(
+        repo,
+        force=True,
+        auto_accept=True,
+        summarizer=lambda s, u, c: '{"session": {"summary": "test", "highlights": []}, "sprint_done": [], "sprint_next": []}',
+    )
+    assert ok is True
+
+
+# ── Phase E: supersession nudge tests ────────────────────────────────────────
+
+
+def _make_baton_for_nudge(path: Path) -> None:
+    """Write BATON.md with d001 in decisions and save it."""
+    content = (
+        "# BATON.md\n\n"
+        "```yaml\n"
+        'baton_version: "1.0"\n'
+        'last_updated: "2026-06-20"\n'
+        'last_session_tool: ""\n'
+        "project:\n"
+        '  name: "Test"\n'
+        '  purpose: "Testing nudge"\n'
+        '  target_user: ""\n'
+        '  stage: "prototype"\n'
+        "architecture:\n"
+        '  overview: ""\n'
+        "  key_directories: []\n"
+        '  entry_point: ""\n'
+        '  data_flow: ""\n'
+        "stack: []\n"
+        "laws: []\n"
+        "current_sprint:\n"
+        '  goal: ""\n'
+        "  done: []\n"
+        "  in_progress: []\n"
+        "  blocked: []\n"
+        "  next: []\n"
+        "decisions:\n"
+        '  - id: "d001"\n'
+        '    what: "Use SQLite for dev storage"\n'
+        '    why: "Simple setup"\n'
+        '    made: "2026-06-01"\n'
+        '    made_in: "test"\n'
+        "anti_decisions: []\n"
+        "landmines: []\n"
+        "open_questions: []\n"
+        "sessions: []\n"
+        "```\n"
+    )
+    path.write_text(content, encoding="utf-8")
+
+
+def _pre_ids_from_doc(doc: BatonDocument) -> set[str]:
+    """Collect the set of existing ids from all supersedable lists."""
+    pre_ids: set[str] = set()
+    for tk in SUPERSEDABLE_TYPES:
+        for e in (doc.data.get(tk) or []):
+            if isinstance(e, dict) and e.get("id"):
+                pre_ids.add(str(e["id"]))
+    return pre_ids
+
+
+_SIMILAR_DELTA = {
+    "decisions": [{"what": "Use SQLite for dev storage layer", "why": "refined", "made_in": "test"}],
+    "anti_decisions": [], "landmines": [], "open_questions": [],
+    "session": {"summary": "Nudge test reason", "highlights": []},
+    "sprint_done": [], "sprint_next": [],
+}
+
+
+def test_auto_accept_skips_nudge(tmp_path: Path) -> None:
+    """Under auto_accept=True, the nudge is not invoked; no declined file created.
+
+    Exercises the ``if not auto_accept:`` guard in run_end by calling run_end
+    with a real git repo and auto_accept=True and verifying the guard holds.
+    """
+    # Build a real git repo so run_end can complete normally.
+    git(["init"], tmp_path)
+    git(["config", "user.email", "test@test.com"], tmp_path)
+    git(["config", "user.name", "Test"], tmp_path)
+
+    baton_path = tmp_path / "BATON.md"
+    _make_baton_for_nudge(baton_path)
+    make_commit(tmp_path, "BATON.md", baton_path.read_text(encoding="utf-8"))
+
+    # Add enough changed lines to pass the threshold.
+    (tmp_path / "work.py").write_text("\n".join(f"x{i} = {i}" for i in range(20)))
+    git(["add", "work.py"], tmp_path)
+    git(["commit", "-m", "add work module"], tmp_path)
+
+    result = run_end(
+        tmp_path,
+        auto_accept=True,
+        force=True,
+        summarizer=lambda s, u, c: json.dumps(_SIMILAR_DELTA),
+    )
+    assert result is True
+
+    # auto_accept=True skips the nudge entirely; no declined file should be written.
+    declined_path = tmp_path / ".baton" / "supersede_declined.json"
+    assert not declined_path.exists()
+
+
+def test_nudge_accept_creates_supersession_link(tmp_path: Path) -> None:
+    """nudge_accept=True: the new entry (d002) gets a supersedes link to d001.
+
+    difflib ratio for "Use SQLite for dev storage" vs "Use SQLite for dev storage
+    layer" is ~0.897, deterministically above 0.85, so the overlap fires every run.
+    """
+    _make_baton_for_nudge(tmp_path / "BATON.md")
+    doc = BatonDocument.load(tmp_path / "BATON.md")
+    pre_ids = _pre_ids_from_doc(doc)
+
+    _merge_delta(doc.data, _SIMILAR_DELTA, sha=None, tool="", today="2026-06-20")
+    doc.save()
+
+    _run_supersession_nudge(
+        tmp_path,
+        doc.data,
+        _SIMILAR_DELTA,
+        pre_ids,
+        session_summary="Nudge test reason",
+        nudge_accept=True,
+    )
+
+    doc2 = BatonDocument.load(tmp_path / "BATON.md")
+    d002 = next(
+        (e for e in doc2.data.get("decisions", []) if e.get("id") == "d002"),
+        None,
+    )
+    assert d002 is not None, "d002 should have been merged into decisions"
+    assert "supersedes" in d002, "d002 must have a supersedes field after nudge_accept=True"
+    assert "d001" in list(d002["supersedes"]), "d002.supersedes must reference d001"
+
+
+def test_nudge_decline_records_pair(tmp_path: Path) -> None:
+    """nudge_accept=False: declined pair is recorded in supersede_declined.json.
+
+    The overlap is deterministic (ratio ~0.897), so exactly one pair is recorded.
+    """
+    _make_baton_for_nudge(tmp_path / "BATON.md")
+    doc = BatonDocument.load(tmp_path / "BATON.md")
+    pre_ids = _pre_ids_from_doc(doc)
+
+    _merge_delta(doc.data, _SIMILAR_DELTA, sha=None, tool="", today="2026-06-20")
+    doc.save()
+
+    _run_supersession_nudge(
+        tmp_path,
+        doc.data,
+        _SIMILAR_DELTA,
+        pre_ids,
+        session_summary="test",
+        nudge_accept=False,
+    )
+
+    declined = load_supersede_declined(tmp_path)
+    assert len(declined) == 1, f"Expected exactly 1 declined pair, got {len(declined)}: {declined}"
+    pair = declined[0]
+    assert pair["old_id"] == "d001"
+    assert pair["new_id"] == "d002"
+    assert "date" in pair
+
+
+def test_nudge_decline_suppresses_repeat(tmp_path: Path) -> None:
+    """After a decline is recorded, a second nudge call skips the already-declined pair.
+
+    The pair (d001, d002) should appear at most once in supersede_declined.json
+    even after two consecutive decline calls.
+    """
+    _make_baton_for_nudge(tmp_path / "BATON.md")
+    doc = BatonDocument.load(tmp_path / "BATON.md")
+    pre_ids = _pre_ids_from_doc(doc)
+
+    _merge_delta(doc.data, _SIMILAR_DELTA, sha=None, tool="", today="2026-06-20")
+    doc.save()
+
+    # First call: decline → pair is recorded.
+    _run_supersession_nudge(tmp_path, doc.data, _SIMILAR_DELTA, pre_ids, "test", nudge_accept=False)
+    count_after_first = len(load_supersede_declined(tmp_path))
+    assert count_after_first == 1
+
+    # Second call: same pre_ids so d002 is still in new_ids; pair already declined.
+    doc2 = BatonDocument.load(tmp_path / "BATON.md")
+    _run_supersession_nudge(tmp_path, doc2.data, _SIMILAR_DELTA, pre_ids, "test", nudge_accept=False)
+    declined_after_second = load_supersede_declined(tmp_path)
+    count_after_second = len(declined_after_second)
+
+    # Should not have grown — the pair was already in the declined list.
+    assert count_after_second == count_after_first, (
+        f"Declined list grew from {count_after_first} to {count_after_second}; "
+        "duplicate suppression is broken"
+    )
+
+    # Verify no exact duplicate pairs regardless.
+    pairs = [(d.get("old_id"), d.get("new_id")) for d in declined_after_second]
+    assert len(pairs) == len(set(pairs)), f"Duplicate pairs found: {pairs}"

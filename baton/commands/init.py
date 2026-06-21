@@ -1,5 +1,5 @@
 """
-init.py — ``baton init``: scaffold BATON.md, .baton.toml, and a git hook.
+init.py — ``baton init``: scaffold BATON.md, .baton.toml, and git hooks.
 
 Steps:
 1. Guard against double-initialisation (use --force to override).
@@ -7,22 +7,23 @@ Steps:
 3. Detect which agent files already exist (to pre-populate .baton.toml).
 4. Write BATON.md from the embedded template.
 5. Write .baton.toml (unless it already exists).
-6. If .git exists, install a non-blocking pre-commit reminder hook.
+6. If .git exists, install a non-blocking pre-commit reminder hook and an
+   advisory post-commit drift-check hook.
 
 Phase-1 note: the token-limit trigger is MANUAL (``baton end``) plus this
 optional pre-commit reminder.  Baton cannot auto-detect another tool's token
-state; the hook only prints a reminder message — it never blocks a commit.
+state; the hook only prints a reminder message -- it never blocks a commit.
 """
 from __future__ import annotations
 
 import datetime
-import stat
 from pathlib import Path
 
 import typer
 from rich.console import Console
 
 from ..adapters.registry import detect_enabled
+from .hooks import install_post_commit_hook, install_pre_commit_reminder
 
 console = Console()
 
@@ -84,18 +85,24 @@ current_sprint:
 # Append-only — never modify or delete existing entries.
 # Each needs evidence from a real code change.
 # Format: - id: "d001", what: "", why: "", made: "YYYY-MM-DD", made_in: ""
+#   Supersession (optional): supersedes: [d000, ...]  reason: "why this replaces them"
+#   Drift detection (optional): evidence: {{type: dependency|file|config_key, value: ""}}
 decisions: []
 
 # ── Anti-Decisions ────────────────────────────────────────────────────────────
 # Things explicitly ruled out. Stops agents re-suggesting rejected approaches.
 # Append-only — never delete.
 # Format: - id: "a001", rejected: "", why: "", ruled_out: "YYYY-MM-DD"
+#   Supersession (optional): supersedes: [a000, ...]  reason: "why this replaces them"
+#   Drift detection (optional): pattern: {{type: regex|import|dependency, value: ""}}, severity: warn|block
 anti_decisions: []
 
 # ── Landmines ─────────────────────────────────────────────────────────────────
 # Code that LOOKS wrong but is intentional.
 # Stops agents "fixing" things that are correct as-is.
-# Format: - location: "", looks_like: "", actually: ""
+# Format: - id: "l001", location: "", looks_like: "", actually: ""
+#   Supersession (optional): supersedes: [l000, ...]  reason: "why this replaces them"
+#   Drift detection (optional): marker: "", status: open|touched|possibly_resolved
 landmines: []
 
 # ── Open Questions ────────────────────────────────────────────────────────────
@@ -142,25 +149,9 @@ auto_sync = true                 # run `baton sync` automatically after `baton e
 enabled = {adapters}             # which agent files to maintain
 """
 
-# ── Pre-commit hook ───────────────────────────────────────────────────────────
-# Non-blocking (exits 0). Just prints a reminder to run `baton end`.
-
-_PRE_COMMIT_HOOK = """\
-#!/bin/sh
-# Baton reminder hook — installed by `baton init`
-# This hook never blocks a commit (exits 0).
-printf "\\n"
-printf "  ╔══════════════════════════════════════════════════════╗\\n"
-printf "  ║  Baton: switching AI tools soon?                     ║\\n"
-printf "  ║  Run \\'baton end\\' first to capture session context.  ║\\n"
-printf "  ╚══════════════════════════════════════════════════════╝\\n"
-printf "\\n"
-exit 0
-"""
-
 
 def run_init(repo_root: Path, force: bool = False) -> None:
-    """Scaffold BATON.md, .baton.toml, and an optional pre-commit hook."""
+    """Scaffold BATON.md, .baton.toml, and optional git hooks."""
     baton_path = repo_root / "BATON.md"
     toml_path = repo_root / ".baton.toml"
 
@@ -194,28 +185,35 @@ def run_init(repo_root: Path, force: bool = False) -> None:
     else:
         console.print("[dim]  .baton.toml already exists - skipped[/dim]")
 
-    # ── Git pre-commit hook ───────────────────────────────────────
+    # ── Git hooks ─────────────────────────────────────────────────────────────
     git_dir = repo_root / ".git"
     if git_dir.is_dir():
         hooks_dir = git_dir / "hooks"
         hooks_dir.mkdir(exist_ok=True)
-        hook_path = hooks_dir / "pre-commit"
 
-        if hook_path.exists():
-            console.print("[dim]  pre-commit hook already exists - skipped[/dim]")
-        else:
-            hook_path.write_text(_PRE_COMMIT_HOOK, encoding="utf-8")
-            # Mark executable (owner + group + others).
-            mode = hook_path.stat().st_mode
-            hook_path.chmod(mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+        # Pre-commit: reminder to run baton end (non-blocking)
+        result = install_pre_commit_reminder(hooks_dir)
+        if result == "created":
             console.print("[green]+[/green] Installed pre-commit reminder hook")
+        elif result == "updated":
+            console.print("[green]+[/green] Updated pre-commit reminder hook")
+        else:
+            console.print("[dim]  pre-commit hook already up to date[/dim]")
+
+        # Post-commit: advisory drift check (never blocks)
+        result = install_post_commit_hook(hooks_dir)
+        if result == "created":
+            console.print("[green]+[/green] Installed post-commit drift check hook")
+        elif result == "updated":
+            console.print("[green]+[/green] Updated post-commit drift check hook")
+        else:
+            console.print("[dim]  post-commit hook already up to date[/dim]")
     else:
         console.print(
-            "[dim]  No .git directory found - skipped pre-commit hook.[/dim]"
+            "[dim]  No .git directory found - skipped git hooks.[/dim]"
         )
         console.print(
-            "[dim]  Run [bold]git init[/bold] then [bold]baton init[/bold] "
-            "again to install the hook.[/dim]"
+            "[dim]  Run git init then baton init again to install hooks.[/dim]"
         )
 
     # ── Next steps ────────────────────────────────────────────────

@@ -114,6 +114,28 @@ class BatonDocument:
         self.path.write_text(new_text, encoding="utf-8")
         self._raw_text = new_text
 
+    def upsert_markdown_region(self, start_marker: str, end_marker: str, inner: str) -> None:
+        """Insert or replace a named markdown region in the file, outside the yaml fence.
+
+        Uses adapters.base.upsert_named_block to rewrite the region between
+        *start_marker* and *end_marker* in self._raw_text, then writes the file.
+
+        If *inner* is empty and the region does not exist on disk, this is a no-op.
+        If *inner* is empty and the region DOES exist, it is replaced with an empty block
+        (callers that want to remove the region must pass inner="" -- the block markers
+        remain, but the content is blank).
+
+        Call after save() -- both methods rewrite disjoint regions of the file.
+        """
+        from ..adapters.base import upsert_named_block  # local import avoids circular dep
+
+        if not inner and start_marker not in self._raw_text:
+            return  # zero-supersession no-op: nothing to write, nothing to remove
+
+        new_text = upsert_named_block(self._raw_text, inner, start_marker, end_marker)
+        self.path.write_text(new_text, encoding="utf-8")
+        self._raw_text = new_text
+
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def get(self, *keys: str, default: Any = None) -> Any:
