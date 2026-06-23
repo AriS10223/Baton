@@ -101,6 +101,37 @@ def test_cli_init_short_force_flag_works(
     assert "old content" not in (tmp_path / "BATON.md").read_text(encoding="utf-8")
 
 
+def test_cli_init_installs_post_commit_hook_when_git_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / ".git" / "hooks").mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(app, ["init"])
+    assert (tmp_path / ".git" / "hooks" / "post-commit").exists()
+
+
+def test_cli_init_post_commit_has_managed_block(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from baton.adapters.base import extract_managed_block
+    (tmp_path / ".git" / "hooks").mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(app, ["init"])
+    content = (tmp_path / ".git" / "hooks" / "post-commit").read_text(encoding="utf-8")
+    assert extract_managed_block(content) is not None
+
+
+def test_cli_init_pre_commit_has_managed_block(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from baton.adapters.base import extract_managed_block
+    (tmp_path / ".git" / "hooks").mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(app, ["init"])
+    content = (tmp_path / ".git" / "hooks" / "pre-commit").read_text(encoding="utf-8")
+    assert extract_managed_block(content) is not None
+
+
 # ── baton sync ────────────────────────────────────────────────────────────────
 
 def test_cli_sync_exits_0_with_valid_baton_md(

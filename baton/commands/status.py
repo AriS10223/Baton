@@ -25,9 +25,24 @@ from ..adapters.registry import detect_enabled, get_adapters
 from ..core.alerts import load_alerts, load_appendix_notice, save_appendix_notice
 from ..core.config import BatonConfig
 from ..core.document import BatonDocument, BatonDocumentError
+from ..core.schema import active_entries
 from ..core.supersede import render_superseded_appendix, SUPERSEDED_START, SUPERSEDED_END
 
 console = Console()
+
+
+def _render_data(data: dict) -> dict:
+    """Return a shallow copy of *data* with pending_review entries excluded.
+
+    Mirrors sync.py._render_data so the status comparison uses the same
+    filtered view that ``baton sync`` writes to disk.
+    """
+    filtered = dict(data)
+    for key in ("decisions", "anti_decisions", "landmines", "open_questions"):
+        raw = data.get(key)
+        if isinstance(raw, list):
+            filtered[key] = active_entries(raw)
+    return filtered
 
 
 def run_status(repo_root: Path) -> None:
@@ -73,7 +88,7 @@ def run_status(repo_root: Path) -> None:
             )
             continue
 
-        expected_inner = adapter.render(doc.data)
+        expected_inner = adapter.render(_render_data(doc.data))
         if existing_block.strip() == expected_inner.strip():
             table.add_row(
                 adapter_name, adapter.file_path(),

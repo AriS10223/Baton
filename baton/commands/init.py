@@ -150,16 +150,56 @@ enabled = {adapters}             # which agent files to maintain
 """
 
 
-def run_init(repo_root: Path, force: bool = False) -> None:
-    """Scaffold BATON.md, .baton.toml, and optional git hooks."""
+def run_init(
+    repo_root: Path,
+    force: bool = False,
+    scan: bool = False,
+    exhaustive: bool = False,
+    skip_pr_history: bool = False,
+    skip_docs: bool = False,
+) -> None:
+    """Scaffold BATON.md, .baton.toml, and optional git hooks.
+
+    When scan=True, runs the codebase scanner instead of (or in addition to)
+    the normal init flow.  If BATON.md already exists, --scan appends entries
+    without requiring --force.
+
+    Args:
+        repo_root:        Project root directory.
+        force:            Overwrite existing BATON.md.
+        scan:             Run the codebase scanner after init.
+        exhaustive:       Include medium/low-confidence scan entries.
+        skip_pr_history:  Skip the gh PR history scan.
+        skip_docs:        Skip README/ADR documentation scanning.
+    """
     baton_path = repo_root / "BATON.md"
     toml_path = repo_root / ".baton.toml"
+
+    # ── PR template (always, on every baton init) ─────────────────
+    try:
+        from .pr_template import write_pr_template
+        write_pr_template(repo_root, console)
+    except ImportError:
+        pass  # pr_template.py not yet available (race during development)
+
+    # ── Scan-only path: append entries to existing BATON.md ───────
+    if scan:
+        if not baton_path.exists():
+            console.print(
+                "[yellow]BATON.md does not exist.[/yellow] "
+                "Run [bold]baton init[/bold] first to create it, then [bold]baton init --scan[/bold]."
+            )
+            # Fall through to create BATON.md first, then scan
+        else:
+            # BATON.md exists — go directly to scanning (no --force needed)
+            _run_scan(repo_root, exhaustive, skip_pr_history, skip_docs)
+            return
 
     # ── Guard ─────────────────────────────────────────────────────
     if baton_path.exists() and not force:
         console.print(
             "[yellow]BATON.md already exists.[/yellow] "
-            "Use [bold]--force[/bold] to reinitialise."
+            "Use [bold]--force[/bold] to reinitialise, or [bold]--scan[/bold] to append entries."
         )
         raise typer.Exit(0)
 
@@ -223,3 +263,34 @@ def run_init(repo_root: Path, force: bool = False) -> None:
     console.print("  2. Run [bold cyan]baton sync[/bold cyan] to push context to all agent files")
     console.print("  3. Run [bold cyan]baton score[/bold cyan] to check document completeness")
     console.print("  4. At the end of each session: [bold cyan]baton end[/bold cyan] (requires LLM API key)")
+
+    # ── Auto-scan if requested ────────────────────────────────────
+    if scan:
+        console.print()
+        _run_scan(repo_root, exhaustive, skip_pr_history, skip_docs)
+
+
+def _run_scan(
+    repo_root: Path,
+    exhaustive: bool,
+    skip_pr_history: bool,
+    skip_docs: bool,
+) -> None:
+    """Delegate to commands/scan.py (lazy import so scan.py is optional)."""
+    try:
+        from .scan import run_scan
+        run_scan(
+            repo_root,
+            exhaustive=exhaustive,
+            skip_pr_history=skip_pr_history,
+            skip_docs=skip_docs,
+        )
+    except ImportError as exc:
+        console.print(
+            f"[red]Error:[/red] Scan module not available: {exc}",
+            markup=True,
+        )
+        console.print(
+            "Make sure you installed the full package: pip install -e '.[dev]'",
+            markup=False,
+        )

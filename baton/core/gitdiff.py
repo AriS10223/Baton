@@ -68,6 +68,49 @@ def resolve_base_ref(doc_data: dict, since: str | None) -> str | None:
     return None
 
 
+def resolve_since(repo_root: Path, since: str) -> str:
+    """Resolve an arbitrary ``--since`` value to a full commit SHA.
+
+    Algorithm:
+    1. Try the literal value: ``git rev-parse --verify <since>^{commit}``
+       This handles SHAs (full or short), branch names, tags, and ``HEAD~N``.
+    2. On failure, wrap in reflog date syntax:
+       ``git rev-parse --verify @{<since>}^{commit}``
+       This handles relative date phrases like ``yesterday``, ``1 week ago``,
+       ``2 days ago``, etc.
+    3. On both failing, raise ``GitError`` with a message naming both forms tried.
+
+    Returns the resolved SHA string (stripped).
+
+    Note: Step 2 uses ``@{<date>}`` which is **reflog-based and local-only**.
+    On a fresh CI clone with no reflog, date phrases will not resolve.
+    CI should always pass an explicit PR base SHA instead.
+    """
+    # Step 1: try literal
+    try:
+        return _run(
+            ["git", "rev-parse", "--verify", f"{since}^{{commit}}"],
+            repo_root,
+        ).strip()
+    except GitError:
+        pass
+
+    # Step 2: wrap in reflog date syntax
+    date_form = f"@{{{since}}}"
+    try:
+        return _run(
+            ["git", "rev-parse", "--verify", f"{date_form}^{{commit}}"],
+            repo_root,
+        ).strip()
+    except GitError:
+        pass
+
+    raise GitError(
+        f"could not resolve '--since {since}' as a git ref or a date phrase"
+        f" (tried '{since}' and '{date_form}')"
+    )
+
+
 def get_diff(repo_root: Path, base_ref: str | None) -> str:
     """Return the git diff as a string, capped at MAX_DIFF_CHARS.
 
@@ -101,6 +144,17 @@ def count_changed_lines(diff: str) -> int:
         if line.startswith("+") or line.startswith("-"):
             count += 1
     return count
+
+
+def get_staged_diff(repo_root: Path) -> str:
+    """Return the staged diff (git diff --cached) as a string, capped at MAX_DIFF_CHARS.
+
+    Used by ``baton check --staged`` to check what's about to be committed.
+    """
+    diff = _run(["git", "diff", "--cached"], repo_root)
+    if len(diff) > MAX_DIFF_CHARS:
+        diff = diff[:MAX_DIFF_CHARS] + _TRUNCATION_MARKER
+    return diff
 
 
 def get_commit_log(

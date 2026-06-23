@@ -198,7 +198,7 @@ def _check_laws(data: dict):
 
 
 def _check_decisions(data: dict):
-    decisions = _get(data, "decisions", default=[]) or []
+    decisions = active_entries(_get(data, "decisions", default=[]) or [])
     if decisions:
         n = len(decisions)
         return ("pass", f"{n} {'entry' if n == 1 else 'entries'}", "")
@@ -207,7 +207,7 @@ def _check_decisions(data: dict):
 
 
 def _check_anti_decisions(data: dict):
-    anti = _get(data, "anti_decisions", default=[]) or []
+    anti = active_entries(_get(data, "anti_decisions", default=[]) or [])
     if anti:
         n = len(anti)
         return ("pass", f"{n} {'entry' if n == 1 else 'entries'}", "")
@@ -261,7 +261,7 @@ def _check_open_question_statuses(data: dict):
 
 
 def _check_landmines(data: dict):
-    landmines = _get(data, "landmines", default=[]) or []
+    landmines = active_entries(_get(data, "landmines", default=[]) or [])
     if landmines:
         n = len(landmines)
         return ("pass", f"{n} {'entry' if n == 1 else 'entries'}", "")

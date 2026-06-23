@@ -18,8 +18,24 @@ from rich.table import Table
 from ..adapters.registry import detect_enabled, get_adapters
 from ..core.config import BatonConfig
 from ..core.document import BatonDocument, BatonDocumentError
+from ..core.schema import active_entries
 
 console = Console()
+
+
+def _render_data(data: dict) -> dict:
+    """Return a shallow copy of *data* with pending_review entries removed.
+
+    Only the four curated lists are filtered — other sections are passed
+    through unchanged.  This ensures pending_review draft entries from
+    ``baton init --scan`` are never written to agent config files.
+    """
+    filtered = dict(data)
+    for key in ("decisions", "anti_decisions", "landmines", "open_questions"):
+        raw = data.get(key)
+        if isinstance(raw, list):
+            filtered[key] = active_entries(raw)
+    return filtered
 
 
 def run_sync(repo_root: Path, quiet: bool = False) -> bool:
@@ -60,7 +76,7 @@ def run_sync(repo_root: Path, quiet: bool = False) -> bool:
 
         try:
             existing = target.read_text(encoding="utf-8") if target.exists() else ""
-            rendered = adapter.render(doc.data)
+            rendered = adapter.render(_render_data(doc.data))
             new_content = adapter.prepare_file(existing, rendered)
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(new_content, encoding="utf-8")

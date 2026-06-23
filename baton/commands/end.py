@@ -499,8 +499,12 @@ def _merge_delta(
     if new_decisions:
         decisions_list = data.get("decisions")
         if decisions_list is not None:
+            # Exclude pending_review entries from dedup so scan drafts don't
+            # silently block a real baton-end entry for the same decision.
+            from baton.core.schema import PENDING_REVIEW as _PR
             existing_whats = {
-                str(e.get("what") or "") for e in decisions_list if isinstance(e, dict)
+                str(e.get("what") or "") for e in decisions_list
+                if isinstance(e, dict) and e.get("status") != _PR
             }
             for d in new_decisions:
                 what = str(d.get("what") or "")
@@ -520,8 +524,10 @@ def _merge_delta(
     if new_anti:
         anti_list = data.get("anti_decisions")
         if anti_list is not None:
+            from baton.core.schema import PENDING_REVIEW as _PR
             existing_rejected = {
-                str(e.get("rejected") or "") for e in anti_list if isinstance(e, dict)
+                str(e.get("rejected") or "") for e in anti_list
+                if isinstance(e, dict) and e.get("status") != _PR
             }
             for a in new_anti:
                 rejected = str(a.get("rejected") or "")
@@ -540,12 +546,10 @@ def _merge_delta(
     if new_landmines:
         landmines_list = data.get("landmines")
         if landmines_list is not None:
-            existing_locations = {
-                str(e.get("location") or "") for e in landmines_list if isinstance(e, dict)
-            }
-            existing_actuallys = {
-                str(e.get("actually") or "") for e in landmines_list if isinstance(e, dict)
-            }
+            from baton.core.schema import PENDING_REVIEW as _PR
+            _active_lm = [e for e in landmines_list if isinstance(e, dict) and e.get("status") != _PR]
+            existing_locations = {str(e.get("location") or "") for e in _active_lm}
+            existing_actuallys  = {str(e.get("actually") or "") for e in _active_lm}
             for lm in new_landmines:
                 location = str(lm.get("location") or "")
                 actually = str(lm.get("actually") or "")

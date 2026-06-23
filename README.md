@@ -1,13 +1,13 @@
 # Baton
 
-**5 agent adapters · zero-cost session capture · 422 tests passing**
+**5 agent adapters · zero-cost session capture · 504 tests passing**
 
 > Stop re-explaining your project to every AI. One file, every agent, always in sync.
 
 [![PyPI](https://img.shields.io/badge/PyPI-v0.1.3.1-blue)](https://pypi.org/project/baton-pass/0.1.3.1/)
 [![Python](https://img.shields.io/pypi/pyversions/baton-pass)](https://pypi.org/project/baton-pass/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-422%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-504%20passing-brightgreen)](#)
 
 **Baton** keeps structured project memory — your decisions, constraints, session history, and architectural context — alive across tool switches and session ends. Every agent you work with reads the same living document, so it never needs to ask what you already decided.
 
@@ -82,6 +82,8 @@ That's it. No API key for `baton end` — the default summarizer is free and run
 | `baton score` | Grade your `BATON.md` memory quality out of 100 — are decisions documented? laws set? landmines marked? |
 | `baton end` | Capture the session into `BATON.md` — free by default, LLM optional |
 | `baton install-skill` | Install the Claude Code skill so Claude auto-captures sessions without an API key |
+| `baton check --drift` | Detect reality drift — check if the codebase still matches what BATON.md claims (no API) |
+| `baton hooks install` | (Re)install the advisory post-commit drift-check hook |
 | `baton doctor` | Diagnose your setup: BATON.md validity, adapters, agent files, API keys |
 
 ---
@@ -190,6 +192,23 @@ baton doctor -- diagnosing your setup
 
 `baton doctor` always exits 0 — it tells you what to fix without blocking your workflow.
 
+### Reality drift detection
+
+`baton check --drift` detects whether the codebase still matches what BATON.md claims — no LLM, no API key, fully offline. It checks three things:
+
+- **Anti-decisions**: did a change import/add a dependency you ruled out? (add `pattern:` to an anti_decision entry)
+- **Decisions**: did a change remove evidence of a decision you committed to? (add `evidence:` to a decision entry)
+- **Landmines**: was a landmine marker touched or removed? (add `id:` and `marker:` to a landmine entry)
+
+Exit codes: `0` = clean, `1` = warnings, `2` = blocking violations.
+
+```bash
+baton check --drift                      # check since last baton end session
+baton check --drift --staged             # check before committing (in pre-commit hook)
+baton check --drift --acknowledge a001 --reason "intentional"
+baton hooks install --strict             # add a blocking pre-commit hook (opt-in)
+```
+
 ---
 
 ## What lives in BATON.md
@@ -277,6 +296,8 @@ Your project memory belongs in your repo. `BATON.md` is a plain Markdown file yo
 | Inline markers — `DECISION:` / `ANTI:` / `LANDMINE:` / `QUESTION:` in commits + diffs | Done |
 | `baton install-skill` — Claude Code skill for automatic zero-cost session capture | Done |
 | Session-end protocol injected into Codex / Gemini / Cursor / Copilot via `baton sync` | Done |
+| `baton check --drift` — reality drift detection (anti-decisions, decisions, landmines) | Done |
+| `baton hooks install` — managed advisory/blocking git hooks | Done |
 | Team sync — shared BATON.md, PR-time updates | Planned |
 | GitHub Actions integration | Planned |
 | MCP server — expose BATON.md to any MCP-compatible agent | Planned |

@@ -63,6 +63,27 @@ That's it. Open a PR with your adapter and a test.
 
 ---
 
+## Adding a new drift detector
+
+Drift detectors live in `baton/core/drift.py`. Each detector is a pure function:
+
+```python
+def detect_<name>(diff_text: str, entries: list[dict], **kwargs) -> list[dict]:
+    """Returns a list of Alert dicts for detected violations."""
+```
+
+Alert dict shape: `{id, type, severity, status, file, line, detail}`.
+
+To add a detector:
+1. Add the function to `baton/core/drift.py`.
+2. Call it from `commands/check.py` in the detection pipeline (step 3).
+3. Add any new optional BATON.md field names as constants to `baton/core/schema.py` (Law 2).
+4. Add tests to `tests/test_drift.py` with synthetic diff strings — no real git or filesystem needed.
+
+Detectors must be deterministic (no LLM, no network). `baton check --drift` is the only command that runs them.
+
+---
+
 ## Contribution ladder
 
 | Effort | Examples |

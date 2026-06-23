@@ -1,7 +1,8 @@
 """
 cli.py — Baton CLI entry point.
 
-Registers all commands: init / sync / status / score / end / doctor / install-skill.
+Registers all commands: init / sync / status / score / end / doctor /
+install-skill / check / supersede / history / hooks / review.
 """
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ from .commands.doctor import run_doctor
 from .commands.end import run_end
 from .commands.init import run_init
 from .commands.install_skill import run_install_skill
+from .commands.review import run_review
 from .commands.score import run_score
 from .commands.status import run_status
 from .commands.history import run_history
@@ -49,9 +51,44 @@ def init(
         "--force", "-f",
         help="Reinitialise even if BATON.md already exists.",
     ),
+    scan: bool = typer.Option(
+        False,
+        "--scan",
+        help=(
+            "Scan the codebase for decisions, landmines, and anti-decisions "
+            "and append them as pending_review draft entries to BATON.md. "
+            "Works on existing BATON.md without --force."
+        ),
+    ),
+    exhaustive: bool = typer.Option(
+        False,
+        "--exhaustive",
+        help="Include medium- and low-confidence scan entries (default: high only).",
+    ),
+    skip_pr_history: bool = typer.Option(
+        False,
+        "--skip-pr-history",
+        help="Skip the GitHub PR history scan (no gh CLI calls).",
+    ),
+    skip_docs: bool = typer.Option(
+        False,
+        "--skip-docs",
+        help="Skip README/ADR documentation scanning.",
+    ),
 ) -> None:
-    """Scaffold [bold]BATON.md[/bold], [bold].baton.toml[/bold], and a git pre-commit reminder hook."""
-    run_init(_repo_root(), force=force)
+    """Scaffold [bold]BATON.md[/bold], [bold].baton.toml[/bold], and a git pre-commit reminder hook.
+
+    With [bold]--scan[/bold]: scan the codebase and populate draft entries from manifests,
+    code comments, docs, and PR history.  No API key required.
+    """
+    run_init(
+        _repo_root(),
+        force=force,
+        scan=scan,
+        exhaustive=exhaustive,
+        skip_pr_history=skip_pr_history,
+        skip_docs=skip_docs,
+    )
 
 
 @app.command()
@@ -205,7 +242,8 @@ def check(
     ),
     since: str | None = typer.Option(None, "--since", help="Override base git ref."),
     staged: bool = typer.Option(False, "--staged", help="Check staged changes only (git diff --cached)."),
-    quiet: bool = typer.Option(False, "--quiet", "-q", help="Print JSON output only; no Rich formatting."),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="[Deprecated] Alias for --format json."),
+    fmt: str = typer.Option("human", "--format", help="Output format: human, json, or github."),
     fail_on: str = typer.Option("warn", "--fail-on", help="Exit non-zero threshold: warn or block."),
     acknowledge: str | None = typer.Option(None, "--acknowledge", help="Acknowledge an alert by its id."),
     reason: str | None = typer.Option(None, "--reason", help="Reason for acknowledging (required with --acknowledge)."),
@@ -220,6 +258,7 @@ def check(
         since=since,
         staged=staged,
         quiet=quiet,
+        fmt=fmt,
         fail_on=fail_on,
         acknowledge=acknowledge,
         reason=reason,
@@ -252,6 +291,28 @@ def history(
 ) -> None:
     """Show the full supersession timeline for a BATON.md entry."""
     code = run_history(_repo_root(), entry_id)
+    raise typer.Exit(code)
+
+
+# ── baton review ─────────────────────────────────────────────────────────────
+
+@app.command()
+def review() -> None:
+    """Interactively review pending scan entries in [bold]BATON.md[/bold].
+
+    Walks through entries added by [bold]baton init --scan[/bold] one at a time,
+    sorted by confidence (high → medium → low).
+
+    For each entry:
+      [bold][a][/bold]ccept  -- mark as active (included in sync / drift)
+      [bold][e][/bold]dit    -- open BATON.md in \\$EDITOR, then advance
+      [bold][d][/bold]elete  -- remove the entry from BATON.md
+      [bold][s][/bold]kip    -- leave as pending_review for the next run
+
+    You can also approve entries by hand-editing the [bold]status[/bold] field in
+    BATON.md from [italic]pending_review[/italic] to [italic]active[/italic].
+    """
+    code = run_review(_repo_root())
     raise typer.Exit(code)
 
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import difflib
 
-from .schema import SUPERSEDABLE_TYPES
+from .schema import PENDING_REVIEW, SUPERSEDABLE_TYPES
 
 # ── Appendix marker constants ─────────────────────────────────────────────────
 
@@ -295,11 +295,12 @@ def detect_overlaps(
         if not isinstance(draft_entries, list):
             continue
 
-        # Collect active existing entries (exclude freshly-added ones)
+        # Collect active existing entries (exclude freshly-added and pending_review ones)
         active_existing = [
             e for e in entries_for(data, type_key)
             if isinstance(e, dict)
             and e.get("id") not in _new_ids
+            and e.get("status") != PENDING_REVIEW
             and derive_status(data, e.get("id", "")) == "active"
         ]
 

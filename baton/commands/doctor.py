@@ -158,7 +158,12 @@ def _check_api_keys(config: BatonConfig) -> None:
             "anthropic",
             "ANTHROPIC_API_KEY",
             os.environ.get("ANTHROPIC_API_KEY", ""),
-            "Fix: export ANTHROPIC_API_KEY=sk-ant-...",
+            "Optional -- baton end already works for free via markers\n"
+            "        (DECISION:/ANTI:/LANDMINE:/QUESTION: in commits) and the\n"
+            "        Claude Code skill (`baton install-skill`).\n"
+            "        Add a key only if you want baton end --api directly, without\n"
+            "        writing markers or running inside an agent session.\n"
+            "        Fix: export ANTHROPIC_API_KEY=sk-ant-...",
         ),
         (
             "openai",
@@ -182,8 +187,16 @@ def _check_api_keys(config: BatonConfig) -> None:
             masked = value[:8] + "..." if len(value) > 8 else "***"
             _row(_PASS, f"{env_var:<38} set ({masked}){tag}")
         else:
-            status = _FAIL if provider == active else _WARN
-            _row(status, f"{env_var:<38} not set{tag}", hint if provider == active else "")
+            if provider == "anthropic":
+                status = _WARN
+                show_hint = True
+            elif provider == active:
+                status = _FAIL
+                show_hint = True
+            else:
+                status = _WARN
+                show_hint = False
+            _row(status, f"{env_var:<38} not set{tag}", hint if show_hint else "")
 
     # Vertex needs a second env var
     vertex_project = os.environ.get("BATON_VERTEX_PROJECT", "")
