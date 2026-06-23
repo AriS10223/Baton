@@ -25,13 +25,7 @@ from __future__ import annotations
 
 import re
 
-# ── Marker regexes (case-insensitive; match at the start of meaningful text) ──
-# These extract curated-memory entries from commit subjects or added diff lines.
-
-_MARKER_DECISION  = re.compile(r"(?i)DECISION\s*:\s*(.+)")
-_MARKER_ANTI      = re.compile(r"(?i)(?:ANTI|REJECTED)\s*:\s*(.+)")
-_MARKER_LANDMINE  = re.compile(r"(?i)LANDMINE\s*:\s*(.+)")
-_MARKER_QUESTION  = re.compile(r"(?i)(?:QUESTION|OPENQ)\s*:\s*(.+)")
+from baton.core.markers import parse_markers as _parse_markers
 
 # ── Commit-subject keywords that suggest "work was completed" ─────────────────
 
@@ -191,66 +185,24 @@ def _extract_markers(commit_log: list[str], diff_text: str) -> dict:
 
     Deduplicates by the primary text field (what / rejected / actually / question).
     """
-    decisions:     list[dict] = []
-    anti_decisions: list[dict] = []
-    landmines:     list[dict] = []
-    open_questions: list[dict] = []
-
-    seen_decisions:  set[str] = set()
-    seen_anti:       set[str] = set()
-    seen_landmines:  set[str] = set()
-    seen_questions:  set[str] = set()
-
-    # Sources: commit subjects + added (+) lines from the diff.
+    # Build source lines: commit subjects + added (+) diff lines
     sources: list[str] = list(commit_log)
     for line in diff_text.splitlines():
         if line.startswith("+") and not line.startswith("+++"):
             sources.append(line[1:])  # strip leading +
 
-    for text in sources:
-        text = text.strip()
-        if not text:
-            continue
+    parsed = _parse_markers(sources)
 
-        m = _MARKER_DECISION.search(text)
-        if m:
-            val = m.group(1).strip()
-            if val and val not in seen_decisions:
-                decisions.append({"what": val, "why": "", "made_in": ""})
-                seen_decisions.add(val)
-            continue
+    # Enrich decision/anti_decision entries with WHY: value if found
+    why = parsed.pop("why", "")
+    parsed.pop("baton_ids", None)  # not used by heuristic path
 
-        m = _MARKER_ANTI.search(text)
-        if m:
-            val = m.group(1).strip()
-            if val and val not in seen_anti:
-                anti_decisions.append({"rejected": val, "why": ""})
-                seen_anti.add(val)
-            continue
+    if why:
+        for d in parsed.get("decisions", []):
+            if not d.get("why"):
+                d["why"] = why
+        for a in parsed.get("anti_decisions", []):
+            if not a.get("why"):
+                a["why"] = why
 
-        m = _MARKER_LANDMINE.search(text)
-        if m:
-            val = m.group(1).strip()
-            if val and val not in seen_landmines:
-                landmines.append({"location": "", "looks_like": "", "actually": val})
-                seen_landmines.add(val)
-            continue
-
-        m = _MARKER_QUESTION.search(text)
-        if m:
-            val = m.group(1).strip()
-            if val and val not in seen_questions:
-                open_questions.append({"question": val, "context": "", "status": "open"})
-                seen_questions.add(val)
-            continue
-
-    result: dict = {}
-    if decisions:
-        result["decisions"] = decisions
-    if anti_decisions:
-        result["anti_decisions"] = anti_decisions
-    if landmines:
-        result["landmines"] = landmines
-    if open_questions:
-        result["open_questions"] = open_questions
-    return result
+    return parsed
