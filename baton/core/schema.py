@@ -30,6 +30,25 @@ LANDMINE_STATUSES = frozenset({"open", "touched", "possibly_resolved", "confirme
 # Maps severity string -> rank integer for --fail-on gating (higher = worse)
 ALERT_SEVERITY_RANK: dict[str, int] = {"warn": 1, "block": 2}
 
+# ── Scan / pending-review constants ──────────────────────────────────────────
+
+# Status value applied to all entries created by ``baton init --scan``.
+# Entries with this status are excluded from drift, sync, score, supersession,
+# and _merge_delta dedup until a human accepts them (via ``baton review`` or by
+# hand-editing the YAML status field to "active").
+PENDING_REVIEW = "pending_review"
+
+# Source identifiers for scan-created entries (stored in entry.source field).
+SCAN_SOURCES = frozenset({
+    "scan:manifest",
+    "scan:comment",
+    "scan:pr_history",
+    "scan:docs",
+    "human",
+})
+
+# Confidence levels for scan-created entries (stored in entry.confidence field).
+CONFIDENCE_LEVELS = frozenset({"high", "medium", "low"})
 # ── Supersession constants ────────────────────────────────────────────────────
 # The three entry types that support supersession chains.
 # prefix  - id prefix character used for new entries
@@ -94,6 +113,22 @@ def feature_label(item) -> str:
     if isinstance(item, dict):
         return item.get("feature") or str(item)
     return str(item)
+
+
+def active_entries(entries: list) -> list:
+    """Return only entries that are NOT pending review.
+
+    Drop any entry whose ``status`` field equals ``PENDING_REVIEW``.
+    This is the single choke-point used by drift, sync, score, supersession,
+    and _merge_delta to exclude draft scan entries from real operations.
+
+    Args:
+        entries: A list of entry dicts (decisions, anti_decisions, etc.)
+
+    Returns:
+        Filtered list with pending_review entries removed.
+    """
+    return [e for e in (entries or []) if e.get("status") != PENDING_REVIEW]
 
 
 # ── Individual check functions ────────────────────────────────────────────────
