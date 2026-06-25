@@ -335,6 +335,14 @@ def render_markdown_context(data: dict, tool_name: str = "") -> str:
                 lines.append(f"- {meta} -- {summary}")
         lines.append("")
 
+    # ── Task-scoped subset hint (all tools) ──────────────────────────────────
+    # Included for every tool so agents know where to look for a scoped view.
+    lines.append(
+        "Sub-agent / on-demand reads: if .baton/scope.md exists, "
+        "it contains the task-scoped entry subset."
+    )
+    lines.append("")
+
     # ── Session-end protocol (non-Claude agents only) ─────────────
     # Claude Code has a dedicated skill (.claude/skills/baton-end/SKILL.md)
     # that covers this protocol; injecting it here would be redundant.

@@ -19,6 +19,8 @@ from ..adapters.registry import detect_enabled, get_adapters
 from ..core.config import BatonConfig
 from ..core.document import BatonDocument, BatonDocumentError
 from ..core.schema import active_entries
+from ..core import scope_io
+from ..core.scope_match import apply_scope
 
 console = Console()
 
@@ -76,7 +78,10 @@ def run_sync(repo_root: Path, quiet: bool = False) -> bool:
 
         try:
             existing = target.read_text(encoding="utf-8") if target.exists() else ""
-            rendered = adapter.render(_render_data(doc.data))
+            filtered_data = _render_data(doc.data)
+            if scope_io.scope_active(repo_root):
+                filtered_data = apply_scope(filtered_data, scope_io.load_scope(repo_root))
+            rendered = adapter.render(filtered_data)
             new_content = adapter.prepare_file(existing, rendered)
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(new_content, encoding="utf-8")

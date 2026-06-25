@@ -87,6 +87,7 @@ current_sprint:
 # Format: - id: "d001", what: "", why: "", made: "YYYY-MM-DD", made_in: ""
 #   Supersession (optional): supersedes: [d000, ...]  reason: "why this replaces them"
 #   Drift detection (optional): evidence: {{type: dependency|file|config_key, value: ""}}
+#   Scope (optional): global: true  # always included in any active scope
 decisions: []
 
 # ── Anti-Decisions ────────────────────────────────────────────────────────────
@@ -95,6 +96,7 @@ decisions: []
 # Format: - id: "a001", rejected: "", why: "", ruled_out: "YYYY-MM-DD"
 #   Supersession (optional): supersedes: [a000, ...]  reason: "why this replaces them"
 #   Drift detection (optional): pattern: {{type: regex|import|dependency, value: ""}}, severity: warn|block
+#   Scope (optional): global: true  # always included in any active scope
 anti_decisions: []
 
 # ── Landmines ─────────────────────────────────────────────────────────────────
@@ -103,6 +105,7 @@ anti_decisions: []
 # Format: - id: "l001", location: "", looks_like: "", actually: ""
 #   Supersession (optional): supersedes: [l000, ...]  reason: "why this replaces them"
 #   Drift detection (optional): marker: "", status: open|touched|possibly_resolved
+#   Scope (optional): global: true  # always included in any active scope
 landmines: []
 
 # ── Open Questions ────────────────────────────────────────────────────────────

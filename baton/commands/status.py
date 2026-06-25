@@ -26,6 +26,8 @@ from ..core.alerts import load_alerts, load_appendix_notice, save_appendix_notic
 from ..core.config import BatonConfig
 from ..core.document import BatonDocument, BatonDocumentError
 from ..core.schema import active_entries
+from ..core.scope_io import load_scope, scope_active
+from ..core.scope_match import apply_scope
 from ..core.supersede import render_superseded_appendix, SUPERSEDED_START, SUPERSEDED_END
 
 console = Console()
@@ -59,6 +61,28 @@ def run_status(repo_root: Path) -> None:
     enabled_names = config.enabled_adapters or detect_enabled(repo_root)
     adapters = get_adapters(enabled_names)
 
+    # ── Scope banner (if a scope is active) ──────────────────────────────────
+    scope_state = load_scope(repo_root) if scope_active(repo_root) else {}
+    if scope_state:
+        task = scope_state.get("task", "")
+        n_scoped = len(scope_state.get("entry_ids", []))
+        total = sum(
+            len(active_entries(doc.data.get(k) or []))
+            for k in ("decisions", "anti_decisions", "landmines", "open_questions")
+        )
+        scope_md = repo_root / ".baton" / "scope.md"
+        age_str = ""
+        if scope_md.exists():
+            import time
+            age_secs = int(time.time() - scope_md.stat().st_mtime)
+            if age_secs < 3600:
+                age_str = f" ({age_secs // 60}m old)"
+            else:
+                age_str = f" ({age_secs // 3600}h old)"
+        console.print(f"Active scope: {task}", markup=False)
+        console.print(f"  {n_scoped}/{total} entries in scope{age_str}", markup=False)
+        console.print()
+
     table = Table(title="baton status", show_header=True, header_style="bold blue")
     table.add_column("Adapter", style="cyan", width=12)
     table.add_column("File", style="dim", no_wrap=True)
@@ -89,6 +113,8 @@ def run_status(repo_root: Path) -> None:
             continue
 
         expected_inner = adapter.render(_render_data(doc.data))
+        if scope_state:
+            expected_inner = adapter.render(apply_scope(_render_data(doc.data), scope_state))
         if existing_block.strip() == expected_inner.strip():
             table.add_row(
                 adapter_name, adapter.file_path(),

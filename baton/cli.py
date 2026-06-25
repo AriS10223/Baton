@@ -316,6 +316,26 @@ def review() -> None:
     raise typer.Exit(code)
 
 
+# ── baton scope ───────────────────────────────────────────────────────────────
+
+@app.command()
+def scope(
+    task: str | None = typer.Argument(None, help="Task description to scope context for"),
+    clear: bool = typer.Option(False, "--clear", help="Clear active scope and restore full context"),
+) -> None:
+    """Focus context on a task (token-minimised view).
+
+    Writes a task-scoped subset of BATON.md entries to [bold].baton/scope.md[/bold]
+    and syncs SCOPED managed blocks to all agent config files.
+
+    Run [bold]baton scope --clear[/bold] to restore full context.
+    """
+    from .commands.scope import run_scope
+    ok = run_scope(_repo_root(), task=task, clear=clear)
+    if not ok:
+        raise typer.Exit(1)
+
+
 # ── baton hooks ───────────────────────────────────────────────────────────────
 
 hooks_app = typer.Typer(name="hooks", help="Manage Baton git hooks.", no_args_is_help=True)

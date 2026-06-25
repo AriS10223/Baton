@@ -6,9 +6,11 @@ from __future__ import annotations
 import pytest
 
 from baton.core.schema import (
+    GLOBAL_FIELD,
     SCORE_CHECKS,
     VALID_QUESTION_STATUSES,
     _check_anti_decisions,
+    is_global,
     _check_decisions,
     _check_inprogress_owners,
     _check_landmines,
@@ -41,6 +43,28 @@ def test_score_checks_all_have_unique_ids() -> None:
 def test_score_checks_warn_points_lte_full_points() -> None:
     for c in SCORE_CHECKS:
         assert c.warn_points <= c.points, f"{c.id}: warn_points > points"
+
+
+# ── Scope: GLOBAL_FIELD / is_global ──────────────────────────────────────────
+
+def test_global_field_constant() -> None:
+    assert GLOBAL_FIELD == "global"
+
+
+def test_is_global_true_when_set() -> None:
+    assert is_global({"id": "d001", "global": True}) is True
+
+
+def test_is_global_false_when_not_set() -> None:
+    assert is_global({"id": "d001"}) is False
+
+
+def test_is_global_false_when_false() -> None:
+    assert is_global({"id": "d001", "global": False}) is False
+
+
+def test_is_global_false_when_none() -> None:
+    assert is_global({"id": "d001", "global": None}) is False
 
 
 # ── project_purpose ───────────────────────────────────────────────────────────

@@ -84,6 +84,9 @@ Capture this session's work into BATON.md using the Baton CLI.
    malformed, it automatically falls back to a structural heuristic summary.
 
 4. Confirm `BATON.md` was updated and synced to all agent files.
+
+**Task-scoped view:** If `.baton/scope.md` exists, read it for a
+token-minimised subset of BATON.md relevant to the current task.
 """
 
 

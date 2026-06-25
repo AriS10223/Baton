@@ -30,6 +30,18 @@ LANDMINE_STATUSES = frozenset({"open", "touched", "possibly_resolved", "confirme
 # Maps severity string -> rank integer for --fail-on gating (higher = worse)
 ALERT_SEVERITY_RANK: dict[str, int] = {"warn": 1, "block": 2}
 
+# ── Scope constants ───────────────────────────────────────────────────────────
+
+# Optional per-entry field.  When truthy, the entry is always included in any
+# active scope (i.e. it survives scope filtering regardless of keyword match).
+GLOBAL_FIELD = "global"
+
+
+def is_global(entry: dict) -> bool:
+    """Return True if the entry is marked global: true (always-include in scopes)."""
+    return bool(entry.get(GLOBAL_FIELD))
+
+
 # ── Scan / pending-review constants ──────────────────────────────────────────
 
 # Status value applied to all entries created by ``baton init --scan``.

@@ -36,6 +36,7 @@ from rich.rule import Rule
 
 from ..core.config import BatonConfig
 from ..core.document import BatonDocument, BatonDocumentError
+from ..core.scope_io import clear_scope, load_scope, scope_active
 from ..core.gitdiff import (
     GitError,
     count_changed_lines,
@@ -249,6 +250,14 @@ def run_end(
                 )
             except _typer.Abort:
                 pass
+
+    # ── 8b. Clear scope (if active) before auto-sync ─────────────────────────
+    # Scope is task-specific; after baton end completes the session, full
+    # context should be restored so the next session starts unfiltered.
+    if scope_active(repo_root):
+        _task = load_scope(repo_root).get("task", "")
+        clear_scope(repo_root)
+        console.print(f"Scope '{_task}' cleared; full context restored.", markup=False)
 
     # ── 8. Auto-sync ──────────────────────────────────────────────
     if config.auto_sync:
