@@ -2,7 +2,8 @@
 cli.py — Baton CLI entry point.
 
 Registers all commands: init / sync / status / score / end / doctor /
-install-skill / check / supersede / history / hooks / review.
+install-skill / check / supersede / history / hooks / review / scope /
+health / trim.
 """
 from __future__ import annotations
 
@@ -349,6 +350,116 @@ def hooks_install(
     """Install Baton drift-detection git hooks."""
     from .commands.hooks import run_hooks_install
     run_hooks_install(_repo_root(), strict=strict)
+
+
+# ── baton health ──────────────────────────────────────────────────────────────
+
+@app.command()
+def health(
+    fmt: str = typer.Option(
+        "human",
+        "--format",
+        help="Output format: human (default), json, or github.",
+    ),
+    model: str | None = typer.Option(
+        None,
+        "--model",
+        help=(
+            "tiktoken model or encoding name for token counting "
+            "(default: cl100k_base). Example: gpt-4o."
+        ),
+    ),
+) -> None:
+    """Report [bold]BATON.md[/bold] token budget and staleness issues.
+
+    Counts tokens in BATON.md and surfaces stale entries: superseded entries
+    still present, resolved landmines, open questions past their age threshold,
+    and deep supersession chains that can be compressed.
+
+    Exit code: 0 (OK or WARN), 1 (token budget exceeds ERROR threshold).
+
+    Configure thresholds in [bold].baton.toml[/bold] under a [bold][health][/bold] section:
+      token_warn = 4000
+      token_error = 8000
+      staleness_question_days = 30
+      compress_min_depth = 3
+    """
+    from .commands.health import run_health
+    code = run_health(_repo_root(), fmt=fmt, model=model)
+    raise typer.Exit(code)
+
+
+# ── baton trim ────────────────────────────────────────────────────────────────
+
+@app.command()
+def trim(
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Preview what would be deleted without making any changes.",
+    ),
+    auto: bool = typer.Option(
+        False,
+        "--auto",
+        help="Show a summary of all stale entries, then prompt for a single bulk confirmation.",
+    ),
+    budget: int | None = typer.Option(
+        None,
+        "--budget",
+        help="Delete stale entries until BATON.md is under N tokens.",
+        metavar="N",
+    ),
+    compress: bool = typer.Option(
+        False,
+        "--compress",
+        help="Collapse supersession chains (depth >= compress_min_depth) only.",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force", "-f",
+        help="Proceed even if BATON.md has uncommitted changes (skip the clean-tree gate).",
+    ),
+    model: str | None = typer.Option(
+        None,
+        "--model",
+        help="tiktoken model or encoding name for token counting (default: cl100k_base).",
+    ),
+) -> None:
+    """Prune stale entries from [bold]BATON.md[/bold] (interactive by default).
+
+    Edits [bold]BATON.md[/bold] in place and regenerates all agent config files.
+    History is preserved in git log -- always run on a clean branch and commit
+    the result.
+
+    Modes:
+      [bold]baton trim[/bold]             -- interactive: show each entry, [d]elete/[s]kip/[q]uit
+      [bold]baton trim --dry-run[/bold]   -- preview changes, touch nothing
+      [bold]baton trim --auto[/bold]      -- summary list + single Y/n confirmation
+      [bold]baton trim --budget N[/bold]  -- delete until under N tokens
+      [bold]baton trim --compress[/bold]  -- collapse deep supersession chains only
+
+    [bold]--auto[/bold], [bold]--budget[/bold], and [bold]--compress[/bold] are mutually exclusive.
+    """
+    # Validate mutual exclusivity of --auto, --budget, --compress
+    mode_flags = [auto, budget is not None, compress]
+    if sum(mode_flags) > 1:
+        console.print(
+            "[red]Error:[/red] --auto, --budget, and --compress are mutually exclusive.",
+            markup=True,
+        )
+        raise typer.Exit(1)
+
+    from .commands.trim import run_trim
+    code = run_trim(
+        _repo_root(),
+        dry_run=dry_run,
+        auto=auto,
+        budget=budget,
+        compress=compress,
+        force=force,
+        model=model,
+    )
+    raise typer.Exit(code)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

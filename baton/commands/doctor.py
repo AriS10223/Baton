@@ -207,6 +207,21 @@ def _check_api_keys(config: BatonConfig) -> None:
         _row(_PASS, f"BATON_VERTEX_PROJECT                   set ({vertex_project})")
 
 
+def _check_optional_deps() -> None:
+    """Check optional dependencies used by baton health / baton trim."""
+    console.print(Rule("[bold]Optional dependencies[/bold]", style="blue"))
+
+    from ..core.tokens import tiktoken_available
+    if tiktoken_available():
+        _row(_PASS, "tiktoken installed (accurate token counts for baton health)")
+    else:
+        _row(
+            _WARN,
+            "tiktoken not installed -- token counts will use word-count heuristic",
+            'Fix: pip install "baton-pass[tokens]"',
+        )
+
+
 # ── Public entry point ────────────────────────────────────────────────────────
 
 def run_doctor(repo_root: Path) -> None:
@@ -227,4 +242,7 @@ def run_doctor(repo_root: Path) -> None:
     console.print()
 
     _check_api_keys(config)
+    console.print()
+
+    _check_optional_deps()
     console.print()

@@ -61,6 +61,11 @@ SCAN_SOURCES = frozenset({
 
 # Confidence levels for scan-created entries (stored in entry.confidence field).
 CONFIDENCE_LEVELS = frozenset({"high", "medium", "low"})
+
+# Supersession chain compression fields (written by `baton trim --compress`).
+# These are per-entry fields on the chain head after ancestors are deleted.
+HISTORY_COMPRESSED_FIELD = "history_compressed"  # bool: True when chain was compressed
+ORIGINAL_DATE_FIELD      = "original_date"        # str: ISO date of oldest ancestor in chain
 # ── Supersession constants ────────────────────────────────────────────────────
 # The three entry types that support supersession chains.
 # prefix  - id prefix character used for new entries

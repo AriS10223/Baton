@@ -157,6 +157,18 @@ def get_staged_diff(repo_root: Path) -> str:
     return diff
 
 
+def working_tree_dirty(repo_root: Path, path: str = "BATON.md") -> bool:
+    """Return True if *path* has uncommitted changes in the working tree.
+
+    Uses ``git status --porcelain -- <path>`` so only the specific file is
+    checked, not the entire repository.
+
+    Raises GitError when git is unavailable or not in a repository.
+    """
+    out = _run(["git", "status", "--porcelain", "--", path], repo_root)
+    return bool(out.strip())
+
+
 def get_commit_log(
     repo_root: Path,
     base_ref: str | None,
